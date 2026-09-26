@@ -320,6 +320,53 @@ app.get("/api/bitrix/test", async (req, res) => {
   }
 });
 
+app.get("/api/bitrix/lead-fields", async (req, res) => {
+  try {
+    if (!BITRIX_WEBHOOK_URL) {
+      return res.status(500).json({
+        ok: false,
+        error: "BITRIX_WEBHOOK_URL is not configured"
+      });
+    }
+
+    const response = await fetch(
+      `${BITRIX_WEBHOOK_URL}crm.item.fields.json?entityTypeId=1`
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      return res.status(500).json({
+        ok: false,
+        error: data.error_description || data.error || "Bitrix API error"
+      });
+    }
+
+    const fields = data.result?.fields || {};
+
+    const languageField = Object.entries(fields).find(
+      ([code, field]) =>
+        String(field.title || "").toLowerCase() === "language"
+    );
+
+    res.json({
+      ok: true,
+      languageField: languageField
+        ? {
+            code: languageField[0],
+            details: languageField[1]
+          }
+        : null
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 /*
 |--------------------------------------------------------------------------
 | Country codes
