@@ -367,6 +367,64 @@ app.get("/api/bitrix/lead-fields", async (req, res) => {
   }
 });
 
+app.get("/api/bitrix/leads", async (req, res) => {
+  try {
+    if (!BITRIX_WEBHOOK_URL) {
+      return res.status(500).json({
+        ok: false,
+        error: "BITRIX_WEBHOOK_URL is not configured"
+      });
+    }
+
+    const response = await fetch(
+      `${BITRIX_WEBHOOK_URL}crm.item.list.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          entityTypeId: 1,
+          select: [
+            "id",
+            "title",
+            "phone",
+            "ufCrm_1690811363903",
+            "dateCreate",
+            "dateModify"
+          ],
+          order: {
+            id: "DESC"
+          },
+          start: 0
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          data.error_description ||
+          data.error ||
+          "Bitrix API error"
+      });
+    }
+
+    res.json({
+      ok: true,
+      data: data.result?.items || []
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 app.get("/api/bitrix/lead/:id", async (req, res) => {
   try {
     if (!BITRIX_WEBHOOK_URL) {
@@ -455,7 +513,12 @@ const phone = Array.isArray(phoneField)
 
 app.post("/api/bitrix/send-template", async (req, res) => {
   try {
-    const { leadId, templateName, languageCode } = req.body;
+    const {
+      leadId,
+      templateName,
+      languageCode,
+      components = []
+    } = req.body;
 
     if (!leadId || !templateName || !languageCode) {
       return res.status(400).json({
@@ -550,7 +613,10 @@ app.post("/api/bitrix/send-template", async (req, res) => {
           name: templateName,
           language: {
             code: languageCode
-          }
+          },
+          ...(Array.isArray(components) && components.length
+            ? { components }
+            : {})
         }
       })
     });
@@ -567,6 +633,22 @@ app.post("/api/bitrix/send-template", async (req, res) => {
       });
     }
 
+    const contactedAt = now();
+    const contactedDay = new Date(contactedAt).toLocaleDateString(
+      "en-US",
+      { weekday: "long", timeZone: "Europe/Istanbul" }
+    );
+
+    addEvent("bitrix_whatsapp_sent", {
+      leadId: Number(leadId),
+      phone: cleanPhone(phone),
+      template: templateName,
+      language: languageCode,
+      contactedDay,
+      contactedAt,
+      messageId: whatsappData?.messages?.[0]?.id || null
+    });
+
     res.json({
       ok: true,
       message: "WhatsApp template accepted",
@@ -574,6 +656,8 @@ app.post("/api/bitrix/send-template", async (req, res) => {
       phone,
       template: templateName,
       language: languageCode,
+      contactedDay,
+      contactedAt,
       whatsapp: whatsappData
     });
 
