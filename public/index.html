@@ -710,6 +710,103 @@ th{
   }
 }
 
+
+/* ============================================================
+   HEALTHCARE GLASSMORPHISM / 3D POLISH
+============================================================ */
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:-1;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(109,224,236,.16), transparent 24%),
+    radial-gradient(circle at 78% 12%, rgba(255,255,255,.80), transparent 22%),
+    radial-gradient(circle at 88% 82%, rgba(61,155,196,.13), transparent 25%);
+}
+.card,.template-card,.inbox,.import-box{
+  position:relative;
+  overflow:hidden;
+  transition:transform .28s ease,box-shadow .28s ease,border-color .28s ease,background .28s ease;
+}
+.card::before,.template-card::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(135deg,rgba(255,255,255,.42),transparent 35%,rgba(98,217,232,.05));
+  opacity:.75;
+}
+.card:hover,.template-card:hover{
+  transform:translateY(-4px) perspective(900px) rotateX(.35deg);
+  box-shadow:0 24px 60px rgba(20,60,90,.16),0 8px 20px rgba(98,217,232,.08);
+  border-color:rgba(98,217,232,.38);
+}
+.stat:hover{transform:translateY(-6px) rotateX(1deg) rotateY(-.5deg);}
+.btn{
+  position:relative;
+  overflow:hidden;
+  box-shadow:0 7px 18px rgba(20,60,90,.08);
+  transition:transform .22s ease,box-shadow .22s ease,filter .22s ease;
+}
+.btn:hover{transform:translateY(-3px) scale(1.015);box-shadow:0 12px 25px rgba(20,60,90,.15);filter:saturate(1.05);}
+.btn:active{transform:translateY(0) scale(.985);}
+.menu-item{transition:transform .22s ease,background .22s ease,color .22s ease,box-shadow .22s ease;}
+.menu-item:hover{transform:translateX(3px);}
+.menu-item.active{box-shadow:0 12px 28px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.12);}
+.topbar{position:sticky;top:0;z-index:15;}
+input,select,textarea{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 4px 14px rgba(20,60,90,.04);
+  transition:border-color .2s ease,box-shadow .2s ease,transform .2s ease;
+}
+input:hover,select:hover,textarea:hover{transform:translateY(-1px);}
+.health-hero{
+  min-height:175px;
+  display:flex;
+  align-items:flex-end;
+  padding:28px;
+  margin-bottom:20px;
+  border-radius:28px;
+  background:linear-gradient(120deg,rgba(7,26,45,.96),rgba(18,82,112,.90) 55%,rgba(74,183,198,.74));
+  color:white;
+  position:relative;
+  overflow:hidden;
+  box-shadow:0 25px 60px rgba(7,26,45,.18);
+}
+.health-hero::before{
+  content:"";
+  position:absolute;
+  width:280px;height:280px;right:-70px;top:-100px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.20);
+  box-shadow:0 0 0 35px rgba(255,255,255,.035),0 0 0 70px rgba(255,255,255,.025);
+}
+.health-hero::after{
+  content:"✦";position:absolute;right:180px;top:35px;font-size:70px;color:rgba(255,255,255,.08);transform:rotate(15deg);
+}
+.health-hero-copy{position:relative;z-index:1;max-width:680px;}
+.health-hero h1{margin:0;font-family:"Playfair Display",serif;font-size:32px;letter-spacing:-.5px;}
+.health-hero p{margin:8px 0 0;color:rgba(255,255,255,.76);font-size:13px;}
+.bitrix-layout{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(320px,.95fr);gap:18px;}
+.bitrix-panel{min-height:100%;}
+.bitrix-lead-card{background:linear-gradient(145deg,rgba(255,255,255,.80),rgba(237,249,252,.62));}
+.bitrix-result{margin-top:14px;padding:14px;border-radius:16px;background:rgba(255,255,255,.54);border:1px solid rgba(255,255,255,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.75);}
+.bitrix-lead-list{max-height:520px;overflow:auto;}
+.bitrix-lead-item{
+  display:flex;align-items:center;gap:12px;padding:13px;border-radius:15px;margin-bottom:8px;cursor:pointer;
+  border:1px solid transparent;background:rgba(255,255,255,.38);transition:.22s ease;
+}
+.bitrix-lead-item:hover{transform:translateX(4px);background:rgba(255,255,255,.72);border-color:rgba(98,217,232,.25);box-shadow:0 10px 25px rgba(20,60,90,.08);}
+.bitrix-avatar{
+  width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;border-radius:13px;color:white;font-weight:700;
+  background:linear-gradient(145deg,#1769aa,#53bfd0);box-shadow:0 8px 18px rgba(23,105,170,.18);
+}
+.bitrix-item-title{font-size:12px;font-weight:700;}
+.bitrix-item-sub{margin-top:3px;font-size:10px;color:#7c919e;}
+.bitrix-status{margin-top:12px;min-height:20px;font-size:12px;color:#718897;}
+.glass-badge{padding:7px 10px;border-radius:999px;background:rgba(220,248,235,.68);color:#187951;border:1px solid rgba(255,255,255,.75);box-shadow:0 6px 15px rgba(40,182,122,.08);font-size:10px;font-weight:700;}
+@media(max-width:1100px){.bitrix-layout{grid-template-columns:1fr;}}
+
 </style>
 </head>
 
@@ -743,6 +840,12 @@ th{
       data-section="send">
       <span class="menu-icon">✉</span>
       <span class="menu-text">Send WhatsApp</span>
+    </button>
+
+    <button class="menu-item"
+      data-section="bitrix">
+      <span class="menu-icon">◈</span>
+      <span class="menu-text">Bitrix Leads</span>
     </button>
 
     <button class="menu-item"
@@ -830,6 +933,13 @@ th{
       onclick="loadDashboard()">
       Refresh
     </button>
+  </div>
+
+  <div class="health-hero">
+    <div class="health-hero-copy">
+      <h1>More Hair. Brighter Tomorrows.</h1>
+      <p>Royal Hair Istanbul's calm, secure command center for patient enquiries, WhatsApp conversations and Bitrix CRM.</p>
+    </div>
   </div>
 
   <div class="grid">
@@ -963,6 +1073,12 @@ th{
         class="btn btn-light"
         onclick="showSection('inbox')">
         Open Shared Inbox
+      </button>
+
+      <button
+        class="btn btn-light"
+        onclick="showSection('bitrix')">
+        Open Bitrix Leads
       </button>
 
       <button
@@ -1214,6 +1330,87 @@ th{
 
   </div>
 
+</section>
+
+
+<!-- BITRIX LEADS -->
+<section class="section" id="section-bitrix">
+
+  <div class="page-header">
+    <div>
+      <h2>Bitrix Lead Center</h2>
+      <p>Select a lead, choose an approved WhatsApp template and send one message.</p>
+    </div>
+    <span class="glass-badge">● Bitrix Connected</span>
+  </div>
+
+  <div class="bitrix-layout">
+
+    <div class="card bitrix-panel bitrix-lead-card">
+      <div class="page-header">
+        <div>
+          <h2 style="font-size:20px">Send to Bitrix Lead</h2>
+          <p>Manual control for your first-stage lead outreach.</p>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Bitrix Lead ID</label>
+          <div style="display:flex;gap:8px">
+            <input id="bitrixLeadId" placeholder="e.g. 2289685"
+              onkeydown="if(event.key==='Enter')fetchBitrixLead()">
+            <button class="btn btn-light" onclick="fetchBitrixLead()">Fetch</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Approved WhatsApp Template</label>
+          <select id="bitrixTemplate" onchange="renderBitrixVariables()">
+            <option value="">Select template</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Phone Number</label>
+          <input id="bitrixPhone" readonly placeholder="Fetch a lead first">
+        </div>
+
+        <div class="field">
+          <label>Language</label>
+          <input id="bitrixLanguage" readonly placeholder="Fetch a lead first">
+        </div>
+
+        <div class="field full" id="bitrixVariables"></div>
+      </div>
+
+      <div id="bitrixLeadStatus" class="bitrix-status">
+        Enter a Bitrix Lead ID and click Fetch.
+      </div>
+
+      <div class="actions" style="margin-top:8px">
+        <button class="btn btn-primary" id="bitrixSendButton" onclick="sendBitrixLead()">
+          ✦ Send WhatsApp
+        </button>
+        <button class="btn btn-light" onclick="clearBitrixLead()">Clear</button>
+      </div>
+    </div>
+
+    <div class="card bitrix-panel">
+      <div class="page-header">
+        <div>
+          <h2 style="font-size:20px">Recent Bitrix Leads</h2>
+          <p>Newest leads from your CRM.</p>
+        </div>
+        <button class="btn btn-light" onclick="loadBitrixLeads()">Refresh</button>
+      </div>
+
+      <div id="bitrixLeadList" class="bitrix-lead-list">
+        <div class="empty">Loading Bitrix leads...</div>
+      </div>
+    </div>
+
+  </div>
 </section>
 
 <!-- BROADCAST -->
@@ -1766,6 +1963,11 @@ function showSection(name){
   if(name === "templates")
     loadTemplates();
 
+  if(name === "bitrix"){
+    loadTemplates();
+    loadBitrixLeads();
+  }
+
   if(name === "broadcast")
     loadCampaigns();
 
@@ -2177,6 +2379,11 @@ function populateTemplateSelectors(){
       "bulkTemplate"
     );
 
+  const bitrix =
+    document.getElementById(
+      "bitrixTemplate"
+    );
+
   const options =
     `
     <option value="">
@@ -2206,6 +2413,11 @@ function populateTemplateSelectors(){
 
   bulk.innerHTML =
     options;
+
+  if(bitrix){
+    bitrix.innerHTML =
+      options;
+  }
 }
 
 function selectedTemplate(
@@ -3232,6 +3444,173 @@ function renderBulkVariables(){
 
 
 /* ============================================================
+   BITRIX LEADS
+============================================================ */
+
+const BITRIX_LANGUAGE_NAMES = {
+  "45":"English","221":"Italiano","215":"French","217":"Spanish",
+  "209":"Romanian","223":"German","49":"Russian","213":"Turkish",
+  "211":"Polish","47":"Portuguese","7103":"Greek","7119":"Bosnian",
+  "10309":"Bulgarian"
+};
+
+let currentBitrixLead = null;
+
+function bitrixLanguageName(value){
+  return BITRIX_LANGUAGE_NAMES[String(value)] || (value ? String(value) : "Not set");
+}
+
+async function fetchBitrixLead(){
+  const input = document.getElementById("bitrixLeadId");
+  const leadId = input?.value.trim();
+  if(!leadId){ toast("Enter a Bitrix Lead ID."); return; }
+
+  try{
+    toast("Fetching Bitrix lead...");
+    const result = await api(`/api/bitrix/lead/${encodeURIComponent(leadId)}`);
+    currentBitrixLead = result.lead || null;
+    if(!currentBitrixLead) throw new Error("Bitrix lead was not returned.");
+
+    document.getElementById("bitrixPhone").value = currentBitrixLead.phone || "";
+    document.getElementById("bitrixLanguage").value = bitrixLanguageName(currentBitrixLead.languageValue);
+    document.getElementById("bitrixLeadStatus").innerHTML =
+      `<span class="badge badge-green">Lead loaded</span>
+       &nbsp; ${esc(currentBitrixLead.title || `Lead #${currentBitrixLead.id}`)}`;
+    renderBitrixVariables();
+    toast("Bitrix lead loaded.");
+  }catch(error){
+    currentBitrixLead = null;
+    document.getElementById("bitrixLeadStatus").textContent = error.message;
+    toast(error.message);
+  }
+}
+
+function renderBitrixVariables(){
+  const template = selectedTemplate("bitrixTemplate");
+  const container = document.getElementById("bitrixVariables");
+  if(!container) return;
+  if(!template){ container.innerHTML = ""; return; }
+
+  const variables = countVariables(template);
+  if(!variables.length){
+    container.innerHTML = `
+      <div class="bitrix-result">
+        <div style="font-size:12px;color:#718897">This template has no variables.</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <label>Template Variables</label>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+      ${variables.map((v,index)=>`
+        <input class="bitrix-variable" data-index="${index}"
+          placeholder="${esc(v.component)} ${esc(v.placeholder)}">
+      `).join("")}
+    </div>`;
+}
+
+function clearBitrixLead(){
+  currentBitrixLead = null;
+  ["bitrixLeadId","bitrixPhone","bitrixLanguage"].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.value="";
+  });
+  const status=document.getElementById("bitrixLeadStatus");
+  if(status) status.textContent="Enter a Bitrix Lead ID and click Fetch.";
+  const vars=document.getElementById("bitrixVariables");
+  if(vars) vars.innerHTML="";
+}
+
+async function sendBitrixLead(){
+  if(!currentBitrixLead){ toast("Fetch a Bitrix lead first."); return; }
+
+  const template = selectedTemplate("bitrixTemplate");
+  if(!template){ toast("Select an approved template."); return; }
+  if(!currentBitrixLead.phone){ toast("This Bitrix lead has no phone number."); return; }
+
+  const variables = [...document.querySelectorAll(".bitrix-variable")].map(input=>input.value.trim());
+  const components = buildFrontendComponents(template, variables);
+  const button = document.getElementById("bitrixSendButton");
+
+  try{
+    if(button){ button.disabled=true; button.textContent="Sending…"; }
+
+    document.getElementById("bitrixLeadStatus").textContent =
+      "Sending WhatsApp template through Meta...";
+
+    const result = await api("/api/bitrix/send-template",{
+      method:"POST",
+      body:JSON.stringify({
+        leadId:Number(currentBitrixLead.id),
+        templateName:template.name,
+        languageCode:template.language,
+        components
+      })
+    });
+
+    document.getElementById("bitrixLeadStatus").innerHTML = `
+      <span class="badge badge-green">Accepted by Meta</span>
+      <div style="margin-top:8px;font-size:11px">
+        Contacted day: <strong>${esc(result.contactedDay || "—")}</strong>
+        · ${esc(formatDate(result.contactedAt))}
+      </div>
+      <div style="margin-top:4px;font-size:11px;color:#718897">
+        Message ID: ${esc(result.whatsapp?.messages?.[0]?.id || "—")}
+      </div>`;
+    toast("WhatsApp message accepted by Meta.");
+    loadBitrixLeads();
+  }catch(error){
+    document.getElementById("bitrixLeadStatus").innerHTML =
+      `<span class="badge badge-red">Send failed</span>
+       <div style="margin-top:8px">${esc(error.message)}</div>`;
+    toast(error.message);
+  }finally{
+    if(button){ button.disabled=false; button.textContent="✦ Send WhatsApp"; }
+  }
+}
+
+async function loadBitrixLeads(){
+  const list=document.getElementById("bitrixLeadList");
+  if(!list) return;
+  list.innerHTML='<div class="empty">Loading Bitrix leads...</div>';
+
+  try{
+    const result=await api("/api/bitrix/leads");
+    const leads=result.data||[];
+
+    if(!leads.length){
+      list.innerHTML='<div class="empty">No Bitrix leads found.</div>';
+      return;
+    }
+
+    list.innerHTML=leads.slice(0,30).map(lead=>{
+      const phone=Array.isArray(lead.phone)
+        ? (lead.phone.find(p=>p.VALUE)?.VALUE || lead.phone.find(p=>p.value)?.value || "")
+        : (lead.phone || "");
+      const language=lead.ufCrm_1690811363903 ?? "";
+
+      return `
+        <div class="bitrix-lead-item" onclick="selectBitrixLead('${esc(String(lead.id))}')">
+          <div class="bitrix-avatar">${esc(String(lead.id).slice(-2))}</div>
+          <div style="min-width:0">
+            <div class="bitrix-item-title">${esc(lead.title || `Lead #${lead.id}`)}</div>
+            <div class="bitrix-item-sub">${esc(phone || "No phone")} · ${esc(bitrixLanguageName(language))}</div>
+          </div>
+        </div>`;
+    }).join("");
+  }catch(error){
+    list.innerHTML=`<div class="empty">${esc(error.message)}</div>`;
+  }
+}
+
+function selectBitrixLead(id){
+  const input=document.getElementById("bitrixLeadId");
+  if(input) input.value=id;
+  fetchBitrixLead();
+}
+
+/* ============================================================
    CREATE BROADCAST
 ============================================================ */
 
@@ -4004,6 +4383,18 @@ setInterval(
         )
     ){
       loadDashboard();
+    }
+
+    if(
+      document
+        .getElementById(
+          "section-bitrix"
+        )
+        .classList.contains(
+          "active"
+        )
+    ){
+      loadBitrixLeads();
     }
 
   },
