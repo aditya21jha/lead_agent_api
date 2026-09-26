@@ -367,6 +367,86 @@ app.get("/api/bitrix/lead-fields", async (req, res) => {
   }
 });
 
+app.get("/api/bitrix/lead/:id", async (req, res) => {
+  try {
+    if (!BITRIX_WEBHOOK_URL) {
+      return res.status(500).json({
+        ok: false,
+        error: "BITRIX_WEBHOOK_URL is not configured"
+      });
+    }
+
+    const leadId = Number(req.params.id);
+
+    if (!leadId) {
+      return res.status(400).json({
+        ok: false,
+        error: "Invalid lead ID"
+      });
+    }
+
+    const response = await fetch(
+      `${BITRIX_WEBHOOK_URL}crm.item.get.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          entityTypeId: 1,
+          id: leadId
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          data.error_description ||
+          data.error ||
+          "Bitrix API error"
+      });
+    }
+
+    const lead = data.result?.item;
+
+    if (!lead) {
+      return res.status(404).json({
+        ok: false,
+        error: "Lead not found"
+      });
+    }
+
+    const phoneField = Array.isArray(lead.phone)
+      ? lead.phone
+      : [];
+
+    const phone =
+      phoneField.find(p => p.value)?.value || null;
+
+    const languageValue = lead.ufCrm_1690811363903 ?? null;
+
+    res.json({
+      ok: true,
+      lead: {
+        id: lead.id,
+        title: lead.title,
+        phone,
+        languageValue
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 /*
 |--------------------------------------------------------------------------
 | Country codes
