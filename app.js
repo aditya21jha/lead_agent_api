@@ -453,6 +453,138 @@ const phone = Array.isArray(phoneField)
   }
 });
 
+app.post("/api/bitrix/send-template", async (req, res) => {
+  try {
+    const { leadId, templateName, languageCode } = req.body;
+
+    if (!leadId || !templateName || !languageCode) {
+      return res.status(400).json({
+        ok: false,
+        error: "leadId, templateName and languageCode are required"
+      });
+    }
+
+    if (!BITRIX_WEBHOOK_URL) {
+      return res.status(500).json({
+        ok: false,
+        error: "BITRIX_WEBHOOK_URL is not configured"
+      });
+    }
+
+    if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
+      return res.status(500).json({
+        ok: false,
+        error: "WhatsApp credentials are not configured"
+      });
+    }
+
+    // 1. Get the Bitrix lead
+    const leadResponse = await fetch(
+      `${BITRIX_WEBHOOK_URL}crm.item.get.json`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          entityTypeId: 1,
+          id: Number(leadId)
+        })
+      }
+    );
+
+    const leadData = await leadResponse.json();
+
+    if (!leadResponse.ok || leadData.error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          leadData.error_description ||
+          leadData.error ||
+          "Could not retrieve Bitrix lead"
+      });
+    }
+
+    const lead = leadData.result?.item;
+
+    if (!lead) {
+      return res.status(404).json({
+        ok: false,
+        error: "Bitrix lead not found"
+      });
+    }
+
+    // 2. Get phone
+    const phoneField = lead.PHONE || lead.phone || [];
+
+    const phone = Array.isArray(phoneField)
+      ? (
+          phoneField.find(p => p.VALUE)?.VALUE ||
+          phoneField.find(p => p.value)?.value ||
+          null
+        )
+      : phoneField || null;
+
+    if (!phone) {
+      return res.status(400).json({
+        ok: false,
+        error: "No phone number found on this Bitrix lead"
+      });
+    }
+
+    // 3. Send WhatsApp template
+    const graphUrl =
+      `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}/messages`;
+
+    const whatsappResponse = await fetch(graphUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: phone.replace(/\D/g, ""),
+        type: "template",
+        template: {
+          name: templateName,
+          language: {
+            code: languageCode
+          }
+        }
+      })
+    });
+
+    const whatsappData = await whatsappResponse.json();
+
+    if (!whatsappResponse.ok || whatsappData.error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          whatsappData.error?.message ||
+          "WhatsApp message failed",
+        whatsapp: whatsappData
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: "WhatsApp template accepted",
+      leadId: Number(leadId),
+      phone,
+      template: templateName,
+      language: languageCode,
+      whatsapp: whatsappData
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
+});
+
 /*
 |--------------------------------------------------------------------------
 | Country codes
