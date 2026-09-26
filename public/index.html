@@ -1,2028 +1,4014 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <title>Royal Hair Istanbul | WhatsApp Dashboard</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
-
-  <style>
-    :root {
-      --navy: #071a2d;
-      --navy-2: #0c2944;
-      --blue: #1769aa;
-      --blue-light: #3d9be9;
-      --cyan: #62d9e8;
-
-      --white: rgba(255,255,255,0.88);
-      --glass: rgba(255,255,255,0.68);
-      --glass-strong: rgba(255,255,255,0.82);
-      --border: rgba(255,255,255,0.55);
-
-      --text: #10243a;
-      --muted: #708196;
-
-      --green: #20b77a;
-      --red: #e95b67;
-      --purple: #8067d9;
-
-      --shadow:
-        0 20px 60px rgba(8, 38, 66, 0.12),
-        inset 0 1px 0 rgba(255,255,255,0.7);
-
-      --radius: 24px;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      min-height: 100vh;
-      font-family: "DM Sans", sans-serif;
-      color: var(--text);
-
-      background:
-        radial-gradient(circle at 75% 15%, rgba(77, 191, 224, 0.28), transparent 30%),
-        radial-gradient(circle at 15% 80%, rgba(71, 134, 204, 0.20), transparent 28%),
-        linear-gradient(135deg, #dcecf4 0%, #eef5f8 45%, #dcebf1 100%);
-
-      overflow-x: hidden;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      width: 500px;
-      height: 500px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.28);
-      filter: blur(100px);
-      top: -180px;
-      right: -100px;
-      pointer-events: none;
-    }
-
-    /* =========================
-       LAYOUT
-    ========================= */
-
-    .app {
-      min-height: 100vh;
-      display: flex;
-    }
-
-    /* =========================
-       SIDEBAR
-    ========================= */
-
-    .sidebar {
-      width: 275px;
-      min-height: 100vh;
-      padding: 28px 20px;
-
-      background:
-        linear-gradient(
-          180deg,
-          rgba(7,26,45,0.96),
-          rgba(9,43,69,0.91)
-        );
-
-      backdrop-filter: blur(30px);
-      -webkit-backdrop-filter: blur(30px);
-
-      border-right: 1px solid rgba(255,255,255,0.14);
-
-      color: white;
-
-      display: flex;
-      flex-direction: column;
-
-      position: fixed;
-      left: 0;
-      top: 0;
-      bottom: 0;
-
-      z-index: 20;
-    }
-
-    .brand {
-      padding: 10px 10px 28px;
-      text-align: center;
-    }
-
-    .brand-icon {
-      width: 48px;
-      height: 48px;
-      margin: auto auto 12px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      border-radius: 16px;
-
-      background: linear-gradient(
-        135deg,
-        rgba(255,255,255,0.20),
-        rgba(255,255,255,0.05)
-      );
-
-      border: 1px solid rgba(255,255,255,0.2);
-
-      font-size: 24px;
-    }
-
-    .brand h1 {
-      font-family: "Playfair Display", serif;
-      font-size: 23px;
-      letter-spacing: 1.5px;
-      font-weight: 600;
-    }
-
-    .brand span {
-      display: block;
-      margin-top: 5px;
-      font-size: 9px;
-      letter-spacing: 4px;
-      opacity: 0.65;
-    }
-
-    .brand-line {
-      width: 45px;
-      height: 1px;
-      margin: 13px auto 0;
-
-      background: linear-gradient(
-        90deg,
-        transparent,
-        #8fdceb,
-        transparent
-      );
-    }
-
-    .menu {
-      margin-top: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-
-    .menu-item {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-
-      padding: 13px 15px;
-      border-radius: 15px;
-
-      color: rgba(255,255,255,0.68);
-
-      cursor: pointer;
-      transition: 0.25s ease;
-
-      font-size: 14px;
-    }
-
-    .menu-item:hover {
-      background: rgba(255,255,255,0.09);
-      color: white;
-      transform: translateX(3px);
-    }
-
-    .menu-item.active {
-      background:
-        linear-gradient(
-          135deg,
-          rgba(111,206,232,0.25),
-          rgba(255,255,255,0.09)
-        );
-
-      border: 1px solid rgba(255,255,255,0.13);
-      color: white;
-
-      box-shadow:
-        inset 0 1px rgba(255,255,255,0.1),
-        0 8px 25px rgba(0,0,0,0.12);
-    }
-
-    .menu-icon {
-      width: 21px;
-      text-align: center;
-      font-size: 17px;
-    }
-
-    .sidebar-bottom {
-      margin-top: auto;
-    }
-
-    .connection {
-      padding: 16px;
-
-      border-radius: 18px;
-
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-
-    .connection-title {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      opacity: 0.55;
-      margin-bottom: 9px;
-    }
-
-    .connection-status {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      font-size: 13px;
-    }
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      background: #32dc8a;
-      border-radius: 50%;
-      box-shadow: 0 0 12px #32dc8a;
-    }
-
-    .user {
-      margin-top: 15px;
-      padding: 12px;
-
-      display: flex;
-      align-items: center;
-      gap: 11px;
-
-      border-radius: 16px;
-      background: rgba(255,255,255,0.06);
-    }
-
-    .avatar {
-      width: 38px;
-      height: 38px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      border-radius: 50%;
-
-      background:
-        linear-gradient(
-          135deg,
-          #63cbe2,
-          #1769aa
-        );
-
-      font-weight: 700;
-    }
-
-    .user-name {
-      font-size: 13px;
-      font-weight: 600;
-    }
-
-    .user-role {
-      font-size: 10px;
-      opacity: 0.55;
-      margin-top: 2px;
-    }
-
-    /* =========================
-       MAIN
-    ========================= */
-
-    .main {
-      margin-left: 275px;
-      width: calc(100% - 275px);
-      padding: 32px;
-
-      min-height: 100vh;
-    }
-
-    .topbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      margin-bottom: 28px;
-    }
-
-    .welcome h2 {
-      font-family: "Playfair Display", serif;
-      font-size: 32px;
-      color: #0b2540;
-    }
-
-    .welcome p {
-      color: var(--muted);
-      margin-top: 6px;
-      font-size: 13px;
-    }
-
-    .top-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .api-pill {
-      padding: 10px 15px;
-
-      display: flex;
-      align-items: center;
-      gap: 9px;
-
-      background: rgba(255,255,255,0.65);
-      border: 1px solid rgba(255,255,255,0.7);
-
-      border-radius: 50px;
-
-      box-shadow: var(--shadow);
-
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    /* =========================
-       GLASS
-    ========================= */
-
-    .glass {
-      background: var(--glass);
-
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-
-      border: 1px solid var(--border);
-
-      box-shadow: var(--shadow);
-
-      border-radius: var(--radius);
-    }
-
-    /* =========================
-       STATS
-    ========================= */
-
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 17px;
-
-      margin-bottom: 22px;
-    }
-
-    .stat {
-      padding: 21px;
-
-      position: relative;
-      overflow: hidden;
-    }
-
-    .stat::after {
-      content: "";
-      position: absolute;
-
-      width: 80px;
-      height: 80px;
-
-      border-radius: 50%;
-
-      right: -25px;
-      top: -30px;
-
-      background: rgba(55, 163, 209, 0.08);
-    }
-
-    .stat-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .stat-icon {
-      width: 34px;
-      height: 34px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      border-radius: 11px;
-
-      font-size: 17px;
-    }
-
-    .blue {
-      background: rgba(47,145,217,0.13);
-      color: #1670b8;
-    }
-
-    .green {
-      background: rgba(32,183,122,0.13);
-      color: #149765;
-    }
-
-    .purple {
-      background: rgba(128,103,217,0.13);
-      color: #7055ca;
-    }
-
-    .red {
-      background: rgba(233,91,103,0.13);
-      color: #d84958;
-    }
-
-    .stat-number {
-      font-size: 28px;
-      font-weight: 700;
-      margin-top: 14px;
-      color: #0c2944;
-    }
-
-    .stat-change {
-      font-size: 10px;
-      color: var(--green);
-      margin-top: 3px;
-    }
-
-    /* =========================
-       GRID
-    ========================= */
-
-    .content-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 300px;
-      gap: 22px;
-    }
-
-    /* =========================
-       SEND CARD
-    ========================= */
-
-    .send-card {
-      padding: 25px;
-    }
-
-    .section-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-
-      margin-bottom: 22px;
-    }
-
-    .title-left {
-      display: flex;
-      align-items: center;
-      gap: 13px;
-    }
-
-    .title-icon {
-      width: 43px;
-      height: 43px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      border-radius: 14px;
-
-      background: linear-gradient(
-        135deg,
-        #0b5d91,
-        #167fba
-      );
-
-      color: white;
-
-      font-size: 19px;
-      box-shadow: 0 8px 20px rgba(20,110,160,0.2);
-    }
-
-    .section-title h3 {
-      font-family: "Playfair Display", serif;
-      font-size: 19px;
-    }
-
-    .section-title p {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 3px;
-    }
-
-    .template-link {
-      padding: 9px 13px;
-
-      border-radius: 12px;
-
-      border: 1px solid rgba(30,110,165,0.15);
-
-      background: rgba(255,255,255,0.55);
-
-      color: var(--blue);
-
-      font-size: 11px;
-      font-weight: 600;
-
-      cursor: pointer;
-    }
-
-    .form-row {
-      display: grid;
-      grid-template-columns: 180px 1fr;
-      gap: 12px;
-      margin-bottom: 15px;
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-
-    label {
-      font-size: 10px;
-      font-weight: 700;
-      color: #496075;
-      text-transform: uppercase;
-      letter-spacing: 0.7px;
-    }
-
-    input,
-    select {
-      width: 100%;
-
-      padding: 13px 14px;
-
-      border-radius: 13px;
-
-      border: 1px solid rgba(62,116,150,0.16);
-
-      background: rgba(255,255,255,0.66);
-
-      outline: none;
-
-      color: var(--text);
-
-      font-family: inherit;
-      font-size: 13px;
-
-      transition: 0.2s;
-    }
-
-    input:focus,
-    select:focus {
-      border-color: rgba(23,105,170,0.45);
-
-      box-shadow:
-        0 0 0 4px rgba(23,105,170,0.07);
-
-      background: white;
-    }
-
-    .info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-
-      padding: 12px 14px;
-
-      margin: 4px 0 17px;
-
-      border-radius: 13px;
-
-      background: rgba(63,161,220,0.08);
-
-      border: 1px solid rgba(63,161,220,0.13);
-
-      color: #39708f;
-
-      font-size: 11px;
-    }
-
-    .send-button {
-      width: 100%;
-
-      padding: 14px;
-
-      border: none;
-      border-radius: 14px;
-
-      color: white;
-
-      background:
-        linear-gradient(
-          100deg,
-          #0b4f7a,
-          #147bb5
-        );
-
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 700;
-
-      cursor: pointer;
-
-      box-shadow:
-        0 10px 25px rgba(11,79,122,0.2);
-
-      transition: 0.25s;
-    }
-
-    .send-button:hover {
-      transform: translateY(-2px);
-
-      box-shadow:
-        0 14px 30px rgba(11,79,122,0.27);
-    }
-
-    .send-button:disabled {
-      opacity: 0.6;
-      cursor: wait;
-      transform: none;
-    }
-
-    /* =========================
-       QUICK ACTIONS
-    ========================= */
-
-    .quick-card {
-      padding: 21px;
-    }
-
-    .quick-card h3 {
-      font-family: "Playfair Display", serif;
-      font-size: 18px;
-      margin-bottom: 16px;
-    }
-
-    .quick {
-      width: 100%;
-      padding: 13px 14px;
-
-      border-radius: 13px;
-
-      border: 1px solid rgba(255,255,255,0.8);
-
-      background: rgba(255,255,255,0.45);
-
-      display: flex;
-      align-items: center;
-      gap: 11px;
-
-      margin-bottom: 9px;
-
-      cursor: pointer;
-
-      font-family: inherit;
-      font-size: 11px;
-      font-weight: 600;
-
-      color: #24435b;
-
-      transition: 0.2s;
-    }
-
-    .quick:hover {
-      background: rgba(255,255,255,0.78);
-      transform: translateX(3px);
-    }
-
-    .quick-icon {
-      width: 31px;
-      height: 31px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      border-radius: 10px;
-
-      background: rgba(23,105,170,0.1);
-    }
-
-    /* =========================
-       API STATUS
-    ========================= */
-
-    .api-card {
-      margin-top: 17px;
-      padding: 21px;
-    }
-
-    .api-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      margin-bottom: 17px;
-    }
-
-    .api-header h3 {
-      font-family: "Playfair Display", serif;
-      font-size: 18px;
-    }
-
-    .connected {
-      padding: 6px 9px;
-
-      border-radius: 30px;
-
-      background: rgba(32,183,122,0.1);
-      color: #12915e;
-
-      font-size: 9px;
-      font-weight: 700;
-    }
-
-    .api-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-
-      padding: 10px 0;
-
-      border-bottom: 1px solid rgba(40,80,110,0.07);
-
-      font-size: 11px;
-      color: #536b80;
-    }
-
-    .api-row:last-child {
-      border-bottom: none;
-    }
-
-    .api-live {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-
-      color: #12915e;
-      font-weight: 600;
-    }
-
-    .mini-dot {
-      width: 6px;
-      height: 6px;
-
-      background: #20b77a;
-      border-radius: 50%;
-    }
-
-    /* =========================
-       RECENT MESSAGES
-    ========================= */
-
-    .recent {
-      margin-top: 22px;
-      padding: 23px;
-    }
-
-    .recent-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      margin-bottom: 15px;
-    }
-
-    .recent-title {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .recent-title-icon {
-      width: 40px;
-      height: 40px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      background: rgba(23,105,170,0.09);
-      border-radius: 12px;
-    }
-
-    .recent h3 {
-      font-family: "Playfair Display", serif;
-      font-size: 18px;
-    }
-
-    .recent p {
-      color: var(--muted);
-      font-size: 10px;
-      margin-top: 2px;
-    }
-
-    .view-all {
-      border: none;
-      background: transparent;
-      color: var(--blue);
-      font-size: 11px;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .table-wrap {
-      overflow-x: auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-
-      min-width: 600px;
-    }
-
-    th {
-      text-align: left;
-
-      padding: 10px;
-
-      color: #718397;
-
-      font-size: 9px;
-
-      text-transform: uppercase;
-      letter-spacing: 0.7px;
-    }
-
-    td {
-      padding: 13px 10px;
-
-      border-top: 1px solid rgba(50,90,120,0.07);
-
-      font-size: 11px;
-
-      color: #40586c;
-    }
-
-    .status {
-      display: inline-flex;
-      align-items: center;
-
-      padding: 5px 8px;
-
-      border-radius: 30px;
-
-      font-size: 9px;
-      font-weight: 700;
-    }
-
-    .status.sent {
-      background: rgba(128,103,217,0.12);
-      color: #7055ca;
-    }
-
-    .status.delivered {
-      background: rgba(23,125,205,0.11);
-      color: #1474b4;
-    }
-
-    .status.read {
-      background: rgba(32,183,122,0.12);
-      color: #138e5d;
-    }
-
-    .status.failed {
-      background: rgba(233,91,103,0.12);
-      color: #d84a59;
-    }
-
-    /* =========================
-       HEALTHCARE CARD
-    ========================= */
-
-    .care-card {
-      margin-top: 17px;
-
-      min-height: 170px;
-
-      padding: 21px;
-
-      position: relative;
-      overflow: hidden;
-
-      color: white;
-
-      background:
-        linear-gradient(
-          135deg,
-          rgba(7,44,70,0.97),
-          rgba(19,103,137,0.92)
-        );
-    }
-
-    .care-card::after {
-      content: "✚";
-
-      position: absolute;
-
-      right: -10px;
-      bottom: -28px;
-
-      font-size: 150px;
-
-      color: rgba(255,255,255,0.04);
-    }
-
-    .care-card small {
-      color: #9ddae7;
-      font-size: 9px;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-    }
-
-    .care-card h3 {
-      font-family: "Playfair Display", serif;
-
-      font-size: 21px;
-
-      margin: 9px 0 5px;
-    }
-
-    .care-card p {
-      font-size: 10px;
-      line-height: 1.6;
-
-      color: rgba(255,255,255,0.68);
-
-      max-width: 220px;
-    }
-
-    .care-button {
-      display: inline-block;
-
-      margin-top: 13px;
-
-      padding: 8px 12px;
-
-      border-radius: 10px;
-
-      background: rgba(255,255,255,0.13);
-
-      border: 1px solid rgba(255,255,255,0.15);
-
-      font-size: 10px;
-      color: white;
-    }
-
-    /* =========================
-       TOAST
-    ========================= */
-
-    .toast {
-      position: fixed;
-
-      right: 25px;
-      bottom: 25px;
-
-      min-width: 280px;
-
-      padding: 15px 17px;
-
-      border-radius: 15px;
-
-      background: rgba(7,26,45,0.94);
-
-      color: white;
-
-      box-shadow: 0 20px 50px rgba(0,0,0,0.2);
-
-      display: none;
-
-      z-index: 100;
-
-      font-size: 12px;
-    }
-
-    .toast.show {
-      display: block;
-      animation: slideUp 0.3s ease;
-    }
-
-    @keyframes slideUp {
-      from {
-        opacity: 0;
-        transform: translateY(15px);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    /* =========================
-       RESPONSIVE
-    ========================= */
-
-    @media (max-width: 1100px) {
-
-      .sidebar {
-        width: 225px;
-      }
-
-      .main {
-        margin-left: 225px;
-        width: calc(100% - 225px);
-      }
-
-      .stats {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      .content-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 750px) {
-
-      .sidebar {
-        position: relative;
-        width: 100%;
-        min-height: auto;
-
-        border-radius: 0 0 25px 25px;
-      }
-
-      .menu {
-        flex-direction: row;
-        overflow-x: auto;
-      }
-
-      .menu-item {
-        white-space: nowrap;
-      }
-
-      .sidebar-bottom {
-        display: none;
-      }
-
-      .main {
-        margin-left: 0;
-        width: 100%;
-        padding: 20px;
-      }
-
-      .topbar {
-        align-items: flex-start;
-        gap: 15px;
-      }
-
-      .top-actions {
-        display: none;
-      }
-
-      .welcome h2 {
-        font-size: 25px;
-      }
-
-      .stats {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .form-row {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 480px) {
-
-      .stats {
-        grid-template-columns: 1fr;
-      }
-
-      .send-card,
-      .recent,
-      .quick-card,
-      .api-card {
-        padding: 17px;
-      }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+
+<title>Royal Hair Istanbul | WhatsApp Dashboard</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+
+:root{
+  --navy:#071a2d;
+  --navy2:#0d2944;
+  --blue:#1769aa;
+  --cyan:#62d9e8;
+  --green:#28b67a;
+  --red:#dc5b67;
+  --yellow:#e5aa3d;
+
+  --bg:#eef7fb;
+  --glass:rgba(255,255,255,.70);
+  --glassStrong:rgba(255,255,255,.88);
+  --border:rgba(255,255,255,.65);
+
+  --shadow:0 20px 50px rgba(20,60,90,.12);
+  --radius:22px;
+}
+
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  font-family:"DM Sans",sans-serif;
+  color:var(--navy);
+  background:
+    radial-gradient(
+      circle at 10% 10%,
+      rgba(98,217,232,.22),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 90% 80%,
+      rgba(23,105,170,.15),
+      transparent 30%
+    ),
+    var(--bg);
+}
+
+button,
+input,
+select,
+textarea{
+  font-family:inherit;
+}
+
+button{
+  cursor:pointer;
+}
+
+.app{
+  min-height:100vh;
+  display:flex;
+}
+
+/* SIDEBAR */
+
+.sidebar{
+  width:260px;
+  min-height:100vh;
+  padding:25px 18px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(7,26,45,.97),
+      rgba(12,41,68,.96)
+    );
+  color:white;
+  position:fixed;
+  left:0;
+  top:0;
+  bottom:0;
+  z-index:20;
+}
+
+.logo{
+  padding:8px 12px 28px;
+}
+
+.logo-title{
+  font-family:"Playfair Display",serif;
+  font-size:25px;
+  font-weight:700;
+}
+
+.logo-sub{
+  font-size:11px;
+  opacity:.65;
+  margin-top:4px;
+  letter-spacing:1.5px;
+  text-transform:uppercase;
+}
+
+.menu{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+
+.menu-item{
+  width:100%;
+  border:0;
+  background:transparent;
+  color:rgba(255,255,255,.67);
+  padding:13px 14px;
+  border-radius:14px;
+  text-align:left;
+  font-size:14px;
+  transition:.2s;
+}
+
+.menu-item:hover{
+  background:rgba(255,255,255,.08);
+  color:white;
+}
+
+.menu-item.active{
+  background:
+    linear-gradient(
+      135deg,
+      rgba(98,217,232,.22),
+      rgba(23,105,170,.45)
+    );
+  color:white;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.08);
+}
+
+.menu-icon{
+  width:24px;
+  display:inline-block;
+}
+
+.sidebar-footer{
+  position:absolute;
+  bottom:20px;
+  left:18px;
+  right:18px;
+  padding:14px;
+  border-radius:15px;
+  background:rgba(255,255,255,.07);
+  font-size:11px;
+  opacity:.8;
+}
+
+/* MAIN */
+
+.main{
+  margin-left:260px;
+  width:calc(100% - 260px);
+  min-height:100vh;
+}
+
+.topbar{
+  height:80px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 30px;
+  background:rgba(255,255,255,.38);
+  backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,.5);
+}
+
+.page-title{
+  font-family:"Playfair Display",serif;
+  font-size:25px;
+}
+
+.connection{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+}
+
+.dot{
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  background:#ccc;
+}
+
+.dot.online{
+  background:var(--green);
+  box-shadow:0 0 10px rgba(40,182,122,.5);
+}
+
+.content{
+  padding:30px;
+}
+
+.section{
+  display:none;
+}
+
+.section.active{
+  display:block;
+}
+
+/* CARDS */
+
+.grid{
+  display:grid;
+  grid-template-columns:
+    repeat(
+      auto-fit,
+      minmax(180px,1fr)
+    );
+  gap:18px;
+}
+
+.card{
+  background:var(--glass);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  backdrop-filter:blur(22px);
+  padding:22px;
+}
+
+.stat{
+  min-height:135px;
+}
+
+.stat-label{
+  font-size:12px;
+  color:#617789;
+}
+
+.stat-value{
+  font-size:31px;
+  font-weight:700;
+  margin-top:12px;
+}
+
+.stat-sub{
+  margin-top:5px;
+  font-size:11px;
+  color:#78909f;
+}
+
+/* FORMS */
+
+.form-grid{
+  display:grid;
+  grid-template-columns:
+    repeat(
+      2,
+      minmax(0,1fr)
+    );
+  gap:15px;
+}
+
+.field{
+  margin-bottom:14px;
+}
+
+.field.full{
+  grid-column:1/-1;
+}
+
+label{
+  display:block;
+  font-size:12px;
+  font-weight:600;
+  margin-bottom:7px;
+  color:#506878;
+}
+
+input,
+select,
+textarea{
+  width:100%;
+  border:1px solid rgba(20,70,100,.12);
+  background:rgba(255,255,255,.75);
+  border-radius:13px;
+  padding:12px 13px;
+  outline:none;
+  color:var(--navy);
+}
+
+input:focus,
+select:focus,
+textarea:focus{
+  border-color:var(--cyan);
+  box-shadow:0 0 0 3px rgba(98,217,232,.13);
+}
+
+textarea{
+  min-height:120px;
+  resize:vertical;
+}
+
+.btn{
+  border:0;
+  border-radius:13px;
+  padding:12px 17px;
+  font-weight:600;
+  font-size:13px;
+  transition:.2s;
+}
+
+.btn:hover{
+  transform:translateY(-1px);
+}
+
+.btn-primary{
+  color:white;
+  background:
+    linear-gradient(
+      135deg,
+      var(--blue),
+      #2197c9
+    );
+}
+
+.btn-dark{
+  color:white;
+  background:var(--navy);
+}
+
+.btn-light{
+  background:rgba(255,255,255,.8);
+  border:1px solid rgba(0,0,0,.08);
+}
+
+.btn-danger{
+  color:white;
+  background:var(--red);
+}
+
+.btn-success{
+  color:white;
+  background:var(--green);
+}
+
+.actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+/* TABLE */
+
+.table-wrap{
+  overflow:auto;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+  min-width:650px;
+}
+
+th,
+td{
+  padding:12px 10px;
+  border-bottom:1px solid rgba(20,70,100,.08);
+  text-align:left;
+  font-size:12px;
+}
+
+th{
+  color:#668090;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+}
+
+.badge{
+  display:inline-flex;
+  padding:5px 9px;
+  border-radius:20px;
+  font-size:10px;
+  font-weight:700;
+}
+
+.badge-green{
+  color:#187951;
+  background:#dcf8eb;
+}
+
+.badge-red{
+  color:#a83a48;
+  background:#fde4e7;
+}
+
+.badge-yellow{
+  color:#8a6117;
+  background:#fff0cc;
+}
+
+.badge-blue{
+  color:#17619b;
+  background:#dff2ff;
+}
+
+/* PAGE HEADER */
+
+.page-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:15px;
+  margin-bottom:22px;
+}
+
+.page-header h2{
+  margin:0;
+  font-family:"Playfair Display",serif;
+  font-size:25px;
+}
+
+.page-header p{
+  margin:5px 0 0;
+  color:#718897;
+  font-size:12px;
+}
+
+/* SEND */
+
+.send-tabs{
+  display:flex;
+  gap:8px;
+  margin-bottom:20px;
+}
+
+.send-tab{
+  padding:10px 16px;
+  border-radius:12px;
+  border:0;
+  background:rgba(255,255,255,.55);
+  color:#6b7f8c;
+}
+
+.send-tab.active{
+  background:var(--navy);
+  color:white;
+}
+
+.send-panel{
+  display:none;
+}
+
+.send-panel.active{
+  display:block;
+}
+
+/* INBOX */
+
+.inbox{
+  display:grid;
+  grid-template-columns:320px 1fr;
+  min-height:650px;
+  padding:0;
+  overflow:hidden;
+}
+
+.inbox-list{
+  border-right:1px solid rgba(20,70,100,.1);
+  overflow:auto;
+}
+
+.inbox-search{
+  padding:15px;
+  border-bottom:1px solid rgba(20,70,100,.08);
+}
+
+.conversation{
+  padding:15px;
+  border-bottom:1px solid rgba(20,70,100,.07);
+  cursor:pointer;
+}
+
+.conversation:hover,
+.conversation.active{
+  background:rgba(98,217,232,.10);
+}
+
+.conversation-name{
+  font-weight:700;
+  font-size:13px;
+}
+
+.conversation-preview{
+  color:#708594;
+  font-size:11px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  margin-top:4px;
+}
+
+.conversation-meta{
+  display:flex;
+  justify-content:space-between;
+  margin-top:8px;
+  font-size:10px;
+  color:#8a9aa4;
+}
+
+.unread{
+  background:var(--blue);
+  color:white;
+  padding:2px 6px;
+  border-radius:10px;
+}
+
+.chat{
+  display:flex;
+  flex-direction:column;
+}
+
+.chat-header{
+  padding:17px 20px;
+  border-bottom:1px solid rgba(20,70,100,.08);
+}
+
+.chat-name{
+  font-weight:700;
+}
+
+.chat-number{
+  color:#80929e;
+  font-size:11px;
+}
+
+.messages{
+  flex:1;
+  padding:20px;
+  overflow:auto;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(98,217,232,.05),
+      transparent 50%
+    );
+}
+
+.message{
+  max-width:72%;
+  padding:10px 13px;
+  margin-bottom:10px;
+  border-radius:15px;
+  font-size:13px;
+  line-height:1.45;
+}
+
+.message.inbound{
+  background:white;
+  margin-right:auto;
+  border-bottom-left-radius:4px;
+}
+
+.message.outbound{
+  background:#d9f3f7;
+  margin-left:auto;
+  border-bottom-right-radius:4px;
+}
+
+.message-time{
+  display:block;
+  font-size:9px;
+  color:#84959e;
+  margin-top:5px;
+}
+
+.chat-composer{
+  padding:15px;
+  border-top:1px solid rgba(20,70,100,.08);
+  display:flex;
+  gap:10px;
+}
+
+.chat-composer textarea{
+  min-height:48px;
+  height:48px;
+  resize:none;
+}
+
+/* TEMPLATE */
+
+.template-grid{
+  display:grid;
+  grid-template-columns:
+    repeat(
+      auto-fill,
+      minmax(260px,1fr)
+    );
+  gap:15px;
+}
+
+.template-card{
+  background:rgba(255,255,255,.65);
+  border:1px solid rgba(255,255,255,.7);
+  border-radius:18px;
+  padding:18px;
+}
+
+.template-name{
+  font-weight:700;
+}
+
+.template-body{
+  color:#657b89;
+  font-size:12px;
+  line-height:1.5;
+  margin:12px 0;
+  white-space:pre-wrap;
+}
+
+.template-status{
+  margin-bottom:10px;
+}
+
+/* CONTACTS */
+
+.import-box{
+  border:2px dashed rgba(23,105,170,.18);
+  border-radius:18px;
+  padding:25px;
+  text-align:center;
+  background:rgba(255,255,255,.35);
+}
+
+.file-input{
+  display:none;
+}
+
+/* TOAST */
+
+.toast{
+  position:fixed;
+  right:25px;
+  bottom:25px;
+  background:var(--navy);
+  color:white;
+  padding:13px 18px;
+  border-radius:13px;
+  font-size:12px;
+  box-shadow:var(--shadow);
+  opacity:0;
+  pointer-events:none;
+  transform:translateY(10px);
+  transition:.25s;
+  z-index:100;
+}
+
+.toast.show{
+  opacity:1;
+  transform:translateY(0);
+}
+
+/* EMPTY */
+
+.empty{
+  text-align:center;
+  padding:50px 20px;
+  color:#80919d;
+  font-size:13px;
+}
+
+@media(max-width:900px){
+
+  .sidebar{
+    width:75px;
+  }
+
+  .logo-title,
+  .logo-sub,
+  .menu-text,
+  .sidebar-footer{
+    display:none;
+  }
+
+  .main{
+    margin-left:75px;
+    width:calc(100% - 75px);
+  }
+
+  .form-grid{
+    grid-template-columns:1fr;
+  }
+
+  .inbox{
+    grid-template-columns:1fr;
+  }
+
+  .inbox-list{
+    max-height:280px;
+    border-right:0;
+    border-bottom:1px solid rgba(20,70,100,.1);
+  }
+}
+
+</style>
 </head>
 
 <body>
 
 <div class="app">
 
-  <!-- =========================
-       SIDEBAR
-  ========================== -->
+<!-- SIDEBAR -->
 
-  <aside class="sidebar">
+<aside class="sidebar">
 
-    <div class="brand">
-
-      <div class="brand-icon">
-        ♛
-      </div>
-
-      <h1>ROYAL HAIR</h1>
-
-      <span>ISTANBUL</span>
-
-      <div class="brand-line"></div>
-
+  <div class="logo">
+    <div class="logo-title">
+      Royal Hair
     </div>
 
+    <div class="logo-sub">
+      Istanbul · WhatsApp
+    </div>
+  </div>
 
-    <nav class="menu">
+  <nav class="menu">
 
-      <div class="menu-item active">
-        <span class="menu-icon">⌂</span>
-        Dashboard
-      </div>
+    <button class="menu-item active"
+      data-section="dashboard">
+      <span class="menu-icon">⌂</span>
+      <span class="menu-text">Dashboard</span>
+    </button>
 
-      <div class="menu-item">
-        <span class="menu-icon">➤</span>
-        Send Message
-      </div>
+    <button class="menu-item"
+      data-section="send">
+      <span class="menu-icon">✉</span>
+      <span class="menu-text">Send WhatsApp</span>
+    </button>
 
-      <div class="menu-item">
-        <span class="menu-icon">◈</span>
-        Bulk Messaging
-      </div>
+    <button class="menu-item"
+      data-section="broadcast">
+      <span class="menu-icon">◉</span>
+      <span class="menu-text">Broadcasts</span>
+    </button>
 
-      <div class="menu-item">
-        <span class="menu-icon">♙</span>
+    <button class="menu-item"
+      data-section="inbox">
+      <span class="menu-icon">☵</span>
+      <span class="menu-text">Shared Inbox</span>
+    </button>
+
+    <button class="menu-item"
+      data-section="contacts">
+      <span class="menu-icon">♙</span>
+      <span class="menu-text">Contacts</span>
+    </button>
+
+    <button class="menu-item"
+      data-section="templates">
+      <span class="menu-icon">▤</span>
+      <span class="menu-text">Templates</span>
+    </button>
+
+    <button class="menu-item"
+      data-section="activity">
+      <span class="menu-icon">◌</span>
+      <span class="menu-text">Activity</span>
+    </button>
+
+    <button class="menu-item"
+      data-section="settings">
+      <span class="menu-icon">⚙</span>
+      <span class="menu-text">Settings</span>
+    </button>
+
+  </nav>
+
+  <div class="sidebar-footer">
+    Royal Hair Istanbul<br>
+    WhatsApp Cloud API
+  </div>
+
+</aside>
+
+<!-- MAIN -->
+
+<main class="main">
+
+<header class="topbar">
+
+  <div class="page-title">
+    WhatsApp Command Center
+  </div>
+
+  <div class="connection">
+    <span class="dot" id="connectionDot"></span>
+    <span id="connectionText">
+      Checking connection...
+    </span>
+  </div>
+
+</header>
+
+<div class="content">
+
+<!-- DASHBOARD -->
+
+<section
+  class="section active"
+  id="section-dashboard">
+
+  <div class="page-header">
+    <div>
+      <h2>Good to see you</h2>
+      <p>
+        Royal Hair Istanbul WhatsApp operations
+      </p>
+    </div>
+
+    <button
+      class="btn btn-light"
+      onclick="loadDashboard()">
+      Refresh
+    </button>
+  </div>
+
+  <div class="grid">
+
+    <div class="card stat">
+      <div class="stat-label">
         Contacts
       </div>
 
-      <div class="menu-item">
-        <span class="menu-icon">▤</span>
-        Message Logs
+      <div
+        class="stat-value"
+        id="statContacts">
+        0
       </div>
 
-      <div class="menu-item">
-        <span class="menu-icon">⌁</span>
-        Analytics
+      <div class="stat-sub">
+        Saved contacts
+      </div>
+    </div>
+
+    <div class="card stat">
+      <div class="stat-label">
+        Messages
       </div>
 
-      <div class="menu-item">
-        <span class="menu-icon">▢</span>
+      <div
+        class="stat-value"
+        id="statMessages">
+        0
+      </div>
+
+      <div class="stat-sub">
+        Total activity
+      </div>
+    </div>
+
+    <div class="card stat">
+      <div class="stat-label">
+        Incoming
+      </div>
+
+      <div
+        class="stat-value"
+        id="statInbound">
+        0
+      </div>
+
+      <div class="stat-sub">
+        Customer messages
+      </div>
+    </div>
+
+    <div class="card stat">
+      <div class="stat-label">
+        Unread
+      </div>
+
+      <div
+        class="stat-value"
+        id="statUnread">
+        0
+      </div>
+
+      <div class="stat-sub">
+        Conversations needing attention
+      </div>
+    </div>
+
+    <div class="card stat">
+      <div class="stat-label">
         Templates
       </div>
 
-      <div class="menu-item">
-        <span class="menu-icon">⊘</span>
-        Opt-Out List
+      <div
+        class="stat-value"
+        id="statTemplates">
+        0
       </div>
 
-      <div class="menu-item">
-        <span class="menu-icon">⚙</span>
-        Settings
+      <div class="stat-sub">
+        Synced from Meta
+      </div>
+    </div>
+
+    <div class="card stat">
+      <div class="stat-label">
+        Active Campaigns
       </div>
 
-    </nav>
+      <div
+        class="stat-value"
+        id="statCampaigns">
+        0
+      </div>
 
+      <div class="stat-sub">
+        Currently running
+      </div>
+    </div>
 
-    <div class="sidebar-bottom">
+  </div>
 
-      <div class="connection">
+  <br>
 
-        <div class="connection-title">
-          System Status
+  <div class="card">
+
+    <div class="page-header">
+      <div>
+        <h2>Quick Actions</h2>
+        <p>
+          Start an operation
+        </p>
+      </div>
+    </div>
+
+    <div class="actions">
+
+      <button
+        class="btn btn-primary"
+        onclick="showSection('send')">
+        Send Single Message
+      </button>
+
+      <button
+        class="btn btn-dark"
+        onclick="showSection('broadcast')">
+        Create Broadcast
+      </button>
+
+      <button
+        class="btn btn-light"
+        onclick="showSection('inbox')">
+        Open Shared Inbox
+      </button>
+
+      <button
+        class="btn btn-light"
+        onclick="syncTemplates()">
+        Sync Templates
+      </button>
+
+    </div>
+
+  </div>
+
+</section>
+
+<!-- SEND -->
+
+<section
+  class="section"
+  id="section-send">
+
+  <div class="page-header">
+    <div>
+      <h2>Send WhatsApp</h2>
+      <p>
+        Single message and bulk messaging are intentionally separated.
+      </p>
+    </div>
+  </div>
+
+  <div class="send-tabs">
+
+    <button
+      class="send-tab active"
+      data-send-tab="single">
+      Single Message
+    </button>
+
+    <button
+      class="send-tab"
+      data-send-tab="bulk">
+      Bulk Message
+    </button>
+
+  </div>
+
+  <!-- SINGLE -->
+
+  <div
+    class="send-panel active"
+    id="send-single">
+
+    <div class="card">
+
+      <div class="form-grid">
+
+        <div class="field">
+
+          <label>
+            Country
+          </label>
+
+          <select id="singleCountry">
+            <option>
+              Loading countries...
+            </option>
+          </select>
+
         </div>
 
-        <div class="connection-status">
-          <span class="status-dot"></span>
-          WhatsApp API Connected
+        <div class="field">
+
+          <label>
+            Phone Number
+          </label>
+
+          <input
+            id="singlePhone"
+            placeholder="Phone number without country code">
+
+        </div>
+
+        <div class="field">
+
+          <label>
+            Message Type
+          </label>
+
+          <select id="singleType"
+            onchange="toggleSingleType()">
+
+            <option value="text">
+              Free-form Text
+            </option>
+
+            <option value="template">
+              Meta Template
+            </option>
+
+          </select>
+
+        </div>
+
+        <div class="field"
+          id="singleTemplateField"
+          style="display:none">
+
+          <label>
+            Template
+          </label>
+
+          <select
+            id="singleTemplate"
+            onchange="renderSingleVariables()">
+          </select>
+
+        </div>
+
+        <div
+          class="field full"
+          id="singleTextField">
+
+          <label>
+            Message
+          </label>
+
+          <textarea
+            id="singleMessage"
+            placeholder="Type your message..."></textarea>
+
+        </div>
+
+        <div
+          class="field full"
+          id="singleVariables">
         </div>
 
       </div>
 
+      <div class="actions">
 
-      <div class="user">
-
-        <div class="avatar">
-          A
-        </div>
-
-        <div>
-
-          <div class="user-name">
-            Aditya Jha
-          </div>
-
-          <div class="user-role">
-            Lead Qualification Agent
-          </div>
-
-        </div>
+        <button
+          class="btn btn-primary"
+          onclick="sendSingle()">
+          Send Message
+        </button>
 
       </div>
 
     </div>
 
-  </aside>
+  </div>
 
+  <!-- BULK -->
 
-  <!-- =========================
-       MAIN
-  ========================== -->
+  <div
+    class="send-panel"
+    id="send-bulk">
 
-  <main class="main">
+    <div class="card">
 
-    <div class="topbar">
+      <div class="form-grid">
 
-      <div class="welcome">
+        <div class="field">
 
-        <h2>
-          Welcome back, Aditya 👋
-        </h2>
+          <label>
+            Campaign Name
+          </label>
 
-        <p>
-          Manage your Royal Hair Istanbul WhatsApp communications.
+          <input
+            id="bulkCampaignName"
+            placeholder="Hair Evaluation Follow-up">
+
+        </div>
+
+        <div class="field">
+
+          <label>
+            Contact List
+          </label>
+
+          <select
+            id="bulkList"
+            onchange="updateBulkCount()">
+          </select>
+
+        </div>
+
+        <div class="field">
+
+          <label>
+            Meta Template
+          </label>
+
+          <select
+            id="bulkTemplate"
+            onchange="renderBulkVariables()">
+          </select>
+
+        </div>
+
+        <div class="field">
+
+          <label>
+            Delay Between Messages
+          </label>
+
+          <select id="bulkDelay">
+
+            <option value="700">
+              700 ms
+            </option>
+
+            <option value="1000">
+              1 second
+            </option>
+
+            <option value="1500">
+              1.5 seconds
+            </option>
+
+            <option value="2000">
+              2 seconds
+            </option>
+
+          </select>
+
+        </div>
+
+        <div
+          class="field full"
+          id="bulkVariables">
+        </div>
+
+      </div>
+
+      <div
+        id="bulkCount"
+        style="font-size:12px;color:#718897;margin-bottom:15px">
+        0 contacts selected
+      </div>
+
+      <button
+        class="btn btn-primary"
+        onclick="createBroadcast()">
+        Start Broadcast
+      </button>
+
+    </div>
+
+  </div>
+
+</section>
+
+<!-- BROADCAST -->
+
+<section
+  class="section"
+  id="section-broadcast">
+
+  <div class="page-header">
+
+    <div>
+      <h2>Broadcasts</h2>
+      <p>
+        Monitor bulk template campaigns.
+      </p>
+    </div>
+
+    <button
+      class="btn btn-primary"
+      onclick="showSection('send');openBulkTab()">
+      New Broadcast
+    </button>
+
+  </div>
+
+  <div class="card">
+
+    <div class="table-wrap">
+
+      <table>
+
+        <thead>
+
+          <tr>
+            <th>Campaign</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Accepted</th>
+            <th>Delivered</th>
+            <th>Read</th>
+            <th>Failed</th>
+          </tr>
+
+        </thead>
+
+        <tbody id="campaignTable">
+        </tbody>
+
+      </table>
+
+    </div>
+
+  </div>
+
+</section>
+
+<!-- INBOX -->
+
+<section
+  class="section"
+  id="section-inbox">
+
+  <div class="page-header">
+
+    <div>
+      <h2>Shared Inbox</h2>
+      <p>
+        Incoming customer messages and team replies.
+      </p>
+    </div>
+
+    <button
+      class="btn btn-light"
+      onclick="loadInbox()">
+      Refresh
+    </button>
+
+  </div>
+
+  <div class="card inbox">
+
+    <div class="inbox-list">
+
+      <div class="inbox-search">
+
+        <input
+          id="inboxSearch"
+          placeholder="Search conversations..."
+          oninput="filterInbox()">
+
+      </div>
+
+      <div id="conversationList">
+      </div>
+
+    </div>
+
+    <div class="chat">
+
+      <div
+        class="chat-header"
+        id="chatHeader">
+
+        <div class="empty">
+          Select a conversation
+        </div>
+
+      </div>
+
+      <div
+        class="messages"
+        id="chatMessages">
+
+        <div class="empty">
+          Select a customer to begin.
+        </div>
+
+      </div>
+
+      <div class="chat-composer">
+
+        <textarea
+          id="chatText"
+          placeholder="Write a reply..."
+          onkeydown="chatKeydown(event)"></textarea>
+
+        <button
+          class="btn btn-primary"
+          onclick="sendChatMessage()">
+          Send
+        </button>
+
+      </div>
+
+    </div>
+
+  </div>
+
+</section>
+
+<!-- CONTACTS -->
+
+<section
+  class="section"
+  id="section-contacts">
+
+  <div class="page-header">
+
+    <div>
+      <h2>Contacts</h2>
+      <p>
+        Import contacts and organize them into reusable lists.
+      </p>
+    </div>
+
+    <button
+      class="btn btn-primary"
+      onclick="createList()">
+      + Create List
+    </button>
+
+  </div>
+
+  <div class="grid">
+
+    <div class="card">
+
+      <h3>Import CSV</h3>
+
+      <p style="font-size:12px;color:#718897">
+        Recommended columns:
+        Name, countrycode, number,
+        var1, var2, var3...
+      </p>
+
+      <div class="import-box">
+
+        <label
+          for="csvFile"
+          class="btn btn-primary">
+          Choose CSV
+        </label>
+
+        <input
+          class="file-input"
+          type="file"
+          id="csvFile"
+          accept=".csv"
+          onchange="importCSV(event)">
+
+        <p
+          id="importStatus"
+          style="font-size:11px">
         </p>
 
       </div>
 
+    </div>
 
-      <div class="top-actions">
+    <div class="card">
 
-        <div class="api-pill">
+      <h3>Contact Lists</h3>
 
-          <span class="status-dot"></span>
-
-          API Connected
-
-        </div>
-
+      <div
+        id="listsContainer">
       </div>
 
     </div>
 
+  </div>
 
-    <!-- =========================
-         STATS
-    ========================== -->
+  <br>
 
-    <section class="stats">
+  <div class="card">
 
-      <div class="stat glass">
-
-        <div class="stat-head">
-
-          Total Messages
-
-          <div class="stat-icon blue">
-            ◉
-          </div>
-
-        </div>
-
-        <div class="stat-number">
-          0
-        </div>
-
-        <div class="stat-change">
-          WhatsApp activity
-        </div>
-
-      </div>
-
-
-      <div class="stat glass">
-
-        <div class="stat-head">
-
-          Delivered
-
-          <div class="stat-icon green">
-            ✓
-          </div>
-
-        </div>
-
-        <div class="stat-number">
-          0
-        </div>
-
-        <div class="stat-change">
-          Delivery tracking active
-        </div>
-
-      </div>
-
-
-      <div class="stat glass">
-
-        <div class="stat-head">
-
-          Read
-
-          <div class="stat-icon purple">
-            ◉
-          </div>
-
-        </div>
-
-        <div class="stat-number">
-          0
-        </div>
-
-        <div class="stat-change">
-          Read tracking active
-        </div>
-
-      </div>
-
-
-      <div class="stat glass">
-
-        <div class="stat-head">
-
-          Failed
-
-          <div class="stat-icon red">
-            !
-          </div>
-
-        </div>
-
-        <div class="stat-number">
-          0
-        </div>
-
-        <div class="stat-change">
-          No failures recorded
-        </div>
-
-      </div>
-
-    </section>
-
-
-    <!-- =========================
-         MAIN GRID
-    ========================== -->
-
-    <div class="content-grid">
+    <div class="page-header">
 
       <div>
-
-        <!-- SEND MESSAGE -->
-
-        <section class="send-card glass">
-
-          <div class="section-title">
-
-            <div class="title-left">
-
-              <div class="title-icon">
-                ➤
-              </div>
-
-              <div>
-
-                <h3>
-                  Send WhatsApp Message
-                </h3>
-
-                <p>
-                  Send an approved template to a contact.
-                </p>
-
-              </div>
-
-            </div>
-
-
-            <button class="template-link">
-              Templates →
-            </button>
-
-          </div>
-
-
-          <form id="sendForm">
-
-            <div class="form-row">
-
-              <div class="field">
-
-                <label>
-                  Country Code
-                </label>
-
-                <select id="countryCode">
-
-                  <option value="91">
-                    🇮🇳 +91 India
-                  </option>
-
-                  <option value="90">
-                    🇹🇷 +90 Turkey
-                  </option>
-
-                  <option value="1">
-                    🇺🇸 +1 USA / Canada
-                  </option>
-
-                  <option value="34">
-                    🇪🇸 +34 Spain
-                  </option>
-
-                  <option value="44">
-                    🇬🇧 +44 UK
-                  </option>
-
-                </select>
-
-              </div>
-
-
-              <div class="field">
-
-                <label>
-                  Phone Number
-                </label>
-
-                <input
-                  id="phone"
-                  type="tel"
-                  placeholder="Enter phone number"
-                  required
-                >
-
-              </div>
-
-            </div>
-
-
-            <div class="form-row">
-
-              <div class="field">
-
-                <label>
-                  Message Template
-                </label>
-
-                <select id="template">
-
-                  <option value="hello_world">
-                    hello_world · en_US
-                  </option>
-
-                  <option value="presentation_en">
-                    Presentation · en_US
-                  </option>
-
-                </select>
-
-              </div>
-
-
-              <div class="field">
-
-                <label>
-                  Template Parameters
-                </label>
-
-                <input
-                  id="parameters"
-                  type="text"
-                  placeholder="Optional parameters"
-                >
-
-              </div>
-
-            </div>
-
-
-            <div class="info">
-
-              <span>ⓘ</span>
-
-              <span>
-                Your message will be sent through the Royal Hair Istanbul WhatsApp Cloud API.
-              </span>
-
-            </div>
-
-
-            <button
-              class="send-button"
-              id="sendButton"
-              type="submit"
-            >
-
-              ➤ &nbsp; Send WhatsApp Message
-
-            </button>
-
-          </form>
-
-        </section>
-
-
-        <!-- RECENT MESSAGES -->
-
-        <section class="recent glass">
-
-          <div class="recent-header">
-
-            <div class="recent-title">
-
-              <div class="recent-title-icon">
-                ▤
-              </div>
-
-              <div>
-
-                <h3>
-                  Recent Messages
-                </h3>
-
-                <p>
-                  Latest WhatsApp activity
-                </p>
-
-              </div>
-
-            </div>
-
-
-            <button class="view-all">
-              View All →
-            </button>
-
-          </div>
-
-
-          <div class="table-wrap">
-
-            <table>
-
-              <thead>
-
-                <tr>
-                  <th>#</th>
-                  <th>Phone</th>
-                  <th>Template</th>
-                  <th>Status</th>
-                  <th>Time</th>
-                  <th>Message ID</th>
-                </tr>
-
-              </thead>
-
-
-              <tbody id="messageTable">
-
-                <tr>
-
-                  <td colspan="6"
-                      style="text-align:center;color:#8a9aaa;padding:30px">
-
-                    No messages yet.
-
-                  </td>
-
-                </tr>
-
-              </tbody>
-
-            </table>
-
-          </div>
-
-        </section>
-
+        <h2>All Contacts</h2>
       </div>
-
-
-      <!-- =========================
-           RIGHT COLUMN
-      ========================== -->
-
-      <aside>
-
-        <section class="quick-card glass">
-
-          <h3>
-            Quick Actions
-          </h3>
-
-
-          <button class="quick">
-
-            <span class="quick-icon">
-              ↑
-            </span>
-
-            Upload Contacts CSV
-
-          </button>
-
-
-          <button class="quick">
-
-            <span class="quick-icon">
-              ◈
-            </span>
-
-            Send Bulk Messages
-
-          </button>
-
-
-          <button class="quick">
-
-            <span class="quick-icon">
-              ▤
-            </span>
-
-            View Message Logs
-
-          </button>
-
-
-          <button class="quick">
-
-            <span class="quick-icon">
-              ▢
-            </span>
-
-            Manage Templates
-
-          </button>
-
-        </section>
-
-
-        <!-- API STATUS -->
-
-        <section class="api-card glass">
-
-          <div class="api-header">
-
-            <h3>
-              API Status
-            </h3>
-
-            <span class="connected">
-              ● Connected
-            </span>
-
-          </div>
-
-
-          <div class="api-row">
-
-            WhatsApp API
-
-            <span class="api-live">
-              <span class="mini-dot"></span>
-              Active
-            </span>
-
-          </div>
-
-
-          <div class="api-row">
-
-            Webhook
-
-            <span class="api-live">
-              <span class="mini-dot"></span>
-              Receiving
-            </span>
-
-          </div>
-
-
-          <div class="api-row">
-
-            Environment
-
-            <span>
-              Production
-            </span>
-
-          </div>
-
-
-          <div class="api-row">
-
-            API Version
-
-            <span>
-              v25.0
-            </span>
-
-          </div>
-
-        </section>
-
-
-        <!-- HEALTHCARE -->
-
-        <section class="care-card glass">
-
-          <small>
-            Royal Hair Istanbul
-          </small>
-
-          <h3>
-            Expert Care.
-            <br>
-            Real Confidence.
-          </h3>
-
-          <p>
-            Helping patients take the next step toward their hair restoration journey.
-          </p>
-
-          <span class="care-button">
-            Medical Evaluation →
-          </span>
-
-        </section>
-
-      </aside>
 
     </div>
 
-  </main>
+    <div class="table-wrap">
+
+      <table>
+
+        <thead>
+
+          <tr>
+            <th>Name</th>
+            <th>Country</th>
+            <th>Phone</th>
+            <th>Lists</th>
+            <th>Created</th>
+          </tr>
+
+        </thead>
+
+        <tbody id="contactsTable">
+        </tbody>
+
+      </table>
+
+    </div>
+
+  </div>
+
+</section>
+
+<!-- TEMPLATES -->
+
+<section
+  class="section"
+  id="section-templates">
+
+  <div class="page-header">
+
+    <div>
+      <h2>Meta Templates</h2>
+      <p>
+        Templates are pulled directly from your WhatsApp Business Account.
+      </p>
+    </div>
+
+    <button
+      class="btn btn-primary"
+      onclick="syncTemplates()">
+      Sync from Meta
+    </button>
+
+  </div>
+
+  <div
+    class="template-grid"
+    id="templateGrid">
+  </div>
+
+</section>
+
+<!-- ACTIVITY -->
+
+<section
+  class="section"
+  id="section-activity">
+
+  <div class="page-header">
+
+    <div>
+      <h2>Live Activity</h2>
+      <p>
+        Webhook and messaging events.
+      </p>
+    </div>
+
+    <button
+      class="btn btn-light"
+      onclick="loadActivity()">
+      Refresh
+    </button>
+
+  </div>
+
+  <div class="card">
+
+    <div
+      id="activityContainer">
+    </div>
+
+  </div>
+
+</section>
+
+<!-- SETTINGS -->
+
+<section
+  class="section"
+  id="section-settings">
+
+  <div class="page-header">
+
+    <div>
+      <h2>Settings</h2>
+      <p>
+        WhatsApp Cloud API connection.
+      </p>
+    </div>
+
+  </div>
+
+  <div class="card">
+
+    <div class="grid">
+
+      <div>
+        <div class="stat-label">
+          Phone Number ID
+        </div>
+
+        <div
+          id="settingsPhone"
+          style="margin-top:8px;font-weight:700">
+          —
+        </div>
+      </div>
+
+      <div>
+        <div class="stat-label">
+          WABA ID
+        </div>
+
+        <div
+          id="settingsWaba"
+          style="margin-top:8px;font-weight:700">
+          —
+        </div>
+      </div>
+
+      <div>
+        <div class="stat-label">
+          Graph API
+        </div>
+
+        <div
+          id="settingsVersion"
+          style="margin-top:8px;font-weight:700">
+          —
+        </div>
+      </div>
+
+      <div>
+        <div class="stat-label">
+          API Status
+        </div>
+
+        <div
+          id="settingsStatus"
+          style="margin-top:8px;font-weight:700">
+          Checking...
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <br>
+
+  <div class="card">
+
+    <h3>Webhook</h3>
+
+    <p style="font-size:12px;color:#718897">
+      Use this callback URL in Meta Developer settings:
+    </p>
+
+    <input
+      readonly
+      id="webhookUrl">
+
+  </div>
+
+</section>
 
 </div>
-
-
-<!-- TOAST -->
+</main>
+</div>
 
 <div
-  id="toast"
   class="toast"
-></div>
-
+  id="toast">
+</div>
 
 <script>
 
-  /*
-   * ============================================
-   * ROYAL HAIR ISTANBUL DASHBOARD
-   * ============================================
-   *
-   * The dashboard communicates with our own
-   * backend endpoint:
-   *
-   * POST /send
-   *
-   * Existing backend remains untouched for now.
-   */
+/* ============================================================
+   STATE
+============================================================ */
+
+let countries = [];
+let templates = [];
+let contacts = [];
+let lists = [];
+let conversations = [];
+let selectedConversation = null;
 
 
-  const form =
-    document.getElementById("sendForm");
+/* ============================================================
+   HELPERS
+============================================================ */
 
-  const button =
-    document.getElementById("sendButton");
+async function api(
+  url,
+  options = {}
+){
+  const response =
+    await fetch(
+      url,
+      {
+        headers:{
+          "Content-Type":
+            "application/json",
+          ...(options.headers || {})
+        },
+        ...options
+      }
+    );
 
-  const toast =
-    document.getElementById("toast");
+  const data =
+    await response.json()
+      .catch(() => ({}));
 
-
-  function showToast(message) {
-
-    toast.textContent = message;
-
-    toast.classList.add("show");
-
-    setTimeout(() => {
-
-      toast.classList.remove("show");
-
-    }, 4000);
-
+  if (!response.ok) {
+    throw new Error(
+      data.error ||
+      "Request failed"
+    );
   }
 
+  return data;
+}
 
-  form.addEventListener("submit", async function(event) {
+function toast(message){
+  const el =
+    document.getElementById(
+      "toast"
+    );
 
-    event.preventDefault();
+  el.textContent =
+    message;
 
+  el.classList.add("show");
 
-    const countryCode =
-      document.getElementById("countryCode").value;
+  setTimeout(() => {
+    el.classList.remove("show");
+  }, 3000);
+}
 
-    const phone =
-      document.getElementById("phone").value.trim();
+function esc(value){
+  return String(
+    value ?? ""
+  )
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
 
-    const template =
-      document.getElementById("template").value;
+function formatDate(value){
+  if(!value) return "—";
 
-
-    if (!phone) {
-
-      showToast("Please enter a phone number.");
-
-      return;
-
-    }
-
-
-    const fullNumber =
-      countryCode + phone;
-
-
-    button.disabled = true;
-
-    button.textContent =
-      "Sending message...";
-
-
-    try {
-
-      /*
-       * This calls our existing backend.
-       *
-       * We are intentionally keeping the
-       * request simple for the first version.
-       */
-
-      const response =
-        await fetch("/send", {
-
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json"
-          },
-
-          body: JSON.stringify({
-
-            to: fullNumber,
-
-            template: template
-
-          })
-
-        });
+  return new Date(value)
+    .toLocaleString();
+}
 
 
-      const data =
-        await response.json();
+/* ============================================================
+   NAVIGATION
+============================================================ */
 
+document
+  .querySelectorAll(".menu-item")
+  .forEach(button => {
 
-      if (!response.ok) {
-
-        throw new Error(
-          data.error ||
-          "Message could not be sent."
+    button.addEventListener(
+      "click",
+      () => {
+        showSection(
+          button.dataset.section
         );
-
       }
-
-
-      showToast(
-        "✓ Message accepted by WhatsApp API."
-      );
-
-
-      addMessageToTable(
-        fullNumber,
-        template,
-        "Accepted"
-      );
-
-
-      document.getElementById("phone").value = "";
-
-
-    } catch (error) {
-
-      console.error(error);
-
-      showToast(
-        "Message failed: " + error.message
-      );
-
-    }
-
-
-    button.disabled = false;
-
-    button.textContent =
-      "➤  Send WhatsApp Message";
+    );
 
   });
 
-
-  function addMessageToTable(
-    phone,
-    template,
-    status
-  ) {
-
-    const table =
-      document.getElementById("messageTable");
-
-
-    const empty =
-      table.querySelector(
-        'td[colspan="6"]'
-      );
-
-
-    if (empty) {
-
-      table.innerHTML = "";
-
-    }
-
-
-    const row =
-      document.createElement("tr");
-
-
-    const time =
-      new Date().toLocaleTimeString(
-        [],
-        {
-          hour: "2-digit",
-          minute: "2-digit"
-        }
-      );
-
-
-    row.innerHTML = `
-
-      <td>1</td>
-
-      <td>
-        +${phone}
-      </td>
-
-      <td>
-        ${template}
-      </td>
-
-      <td>
-        <span class="status sent">
-          ${status}
-        </span>
-      </td>
-
-      <td>
-        ${time}
-      </td>
-
-      <td>
-        —
-      </td>
-
-    `;
-
-
-    table.prepend(row);
-
-  }
-
-
-  /*
-   * Navigation visual interaction.
-   * Actual pages will be connected later.
-   */
+function showSection(name){
 
   document
     .querySelectorAll(".menu-item")
     .forEach(item => {
 
-      item.addEventListener(
-        "click",
-        function() {
+      item.classList.toggle(
+        "active",
+        item.dataset.section === name
+      );
 
-          document
-            .querySelectorAll(".menu-item")
-            .forEach(i =>
-              i.classList.remove("active")
-            );
+    });
 
-          this.classList.add("active");
+  document
+    .querySelectorAll(".section")
+    .forEach(section => {
+
+      section.classList.toggle(
+        "active",
+        section.id ===
+          `section-${name}`
+      );
+
+    });
+
+  if(name === "dashboard")
+    loadDashboard();
+
+  if(name === "contacts"){
+    loadContacts();
+    loadLists();
+  }
+
+  if(name === "templates")
+    loadTemplates();
+
+  if(name === "broadcast")
+    loadCampaigns();
+
+  if(name === "inbox")
+    loadInbox();
+
+  if(name === "activity")
+    loadActivity();
+
+  if(name === "settings")
+    loadSettings();
+}
+
+
+/* ============================================================
+   DASHBOARD
+============================================================ */
+
+async function loadDashboard(){
+
+  try{
+
+    const data =
+      await api(
+        "/api/dashboard/stats"
+      );
+
+    document.getElementById(
+      "statContacts"
+    ).textContent =
+      data.totalContacts;
+
+    document.getElementById(
+      "statMessages"
+    ).textContent =
+      data.totalMessages;
+
+    document.getElementById(
+      "statInbound"
+    ).textContent =
+      data.inbound;
+
+    document.getElementById(
+      "statUnread"
+    ).textContent =
+      data.unread;
+
+    document.getElementById(
+      "statTemplates"
+    ).textContent =
+      data.templates;
+
+    document.getElementById(
+      "statCampaigns"
+    ).textContent =
+      data.activeCampaigns;
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+}
+
+
+/* ============================================================
+   CONNECTION
+============================================================ */
+
+async function checkConnection(){
+
+  try{
+
+    const data =
+      await api(
+        "/api/health"
+      );
+
+    const dot =
+      document.getElementById(
+        "connectionDot"
+      );
+
+    const text =
+      document.getElementById(
+        "connectionText"
+      );
+
+    dot.classList.add(
+      "online"
+    );
+
+    text.textContent =
+      data.whatsappConfigured
+        ? "WhatsApp Cloud Connected"
+        : "API Configuration Missing";
+
+  }catch(error){
+
+    document.getElementById(
+      "connectionText"
+    ).textContent =
+      "Connection Error";
+
+  }
+}
+
+
+/* ============================================================
+   COUNTRIES
+============================================================ */
+
+async function loadCountries(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/countries"
+      );
+
+    countries =
+      result.data || [];
+
+    const select =
+      document.getElementById(
+        "singleCountry"
+      );
+
+    select.innerHTML =
+      `<option value="">
+        Select country
+      </option>`;
+
+    countries.forEach(
+      country => {
+
+        const option =
+          document.createElement(
+            "option"
+          );
+
+        option.value =
+          country.callingCode;
+
+        option.textContent =
+          `${country.name} (+${country.callingCode})`;
+
+        select.appendChild(
+          option
+        );
+
+      }
+    );
+
+  }catch(error){
+
+    toast(
+      "Unable to load countries"
+    );
+
+  }
+}
+
+
+/* ============================================================
+   SEND TABS
+============================================================ */
+
+document
+  .querySelectorAll(".send-tab")
+  .forEach(tab => {
+
+    tab.addEventListener(
+      "click",
+      () => {
+
+        document
+          .querySelectorAll(
+            ".send-tab"
+          )
+          .forEach(
+            t =>
+              t.classList.remove(
+                "active"
+              )
+          );
+
+        document
+          .querySelectorAll(
+            ".send-panel"
+          )
+          .forEach(
+            p =>
+              p.classList.remove(
+                "active"
+              )
+          );
+
+        tab.classList.add(
+          "active"
+        );
+
+        document
+          .getElementById(
+            `send-${tab.dataset.sendTab}`
+          )
+          .classList.add(
+            "active"
+          );
+
+      }
+    );
+
+  });
+
+function openBulkTab(){
+
+  document
+    .querySelector(
+      '[data-send-tab="bulk"]'
+    )
+    .click();
+
+}
+
+
+/* ============================================================
+   TEMPLATES
+============================================================ */
+
+async function syncTemplates(){
+
+  try{
+
+    toast(
+      "Syncing templates from Meta..."
+    );
+
+    const result =
+      await api(
+        "/api/templates/sync",
+        {
+          method:"POST"
+        }
+      );
+
+    templates =
+      result.data || [];
+
+    renderTemplates();
+
+    populateTemplateSelectors();
+
+    toast(
+      `${templates.length} templates synced`
+    );
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+async function loadTemplates(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/templates"
+      );
+
+    templates =
+      result.data || [];
+
+    renderTemplates();
+
+    populateTemplateSelectors();
+
+  }catch(error){
+
+    /*
+     * Cached templates can still be used.
+     */
+
+    if(
+      Array.isArray(
+        error.cached
+      )
+    ){
+      templates =
+        error.cached;
+    }
+
+    renderTemplates();
+    populateTemplateSelectors();
+
+    toast(
+      error.message
+    );
+  }
+
+}
+
+function renderTemplates(){
+
+  const grid =
+    document.getElementById(
+      "templateGrid"
+    );
+
+  if(!templates.length){
+
+    grid.innerHTML = `
+      <div class="card">
+        <div class="empty">
+          No templates found.
+          Click "Sync from Meta".
+        </div>
+      </div>
+    `;
+
+    return;
+  }
+
+  grid.innerHTML =
+    templates
+      .map(template => {
+
+        const body =
+          template.components
+            ?.find(
+              c =>
+                c.type === "BODY"
+            )
+            ?.text ||
+          "No body";
+
+        const status =
+          String(
+            template.status || ""
+          ).toUpperCase();
+
+        const badgeClass =
+          status === "APPROVED"
+            ? "badge-green"
+            : status === "REJECTED"
+              ? "badge-red"
+              : "badge-yellow";
+
+        return `
+          <div class="template-card">
+
+            <div class="template-name">
+              ${esc(template.name)}
+            </div>
+
+            <div
+              class="template-status">
+
+              <span
+                class="badge ${badgeClass}">
+                ${esc(status)}
+              </span>
+
+              <span
+                class="badge badge-blue">
+                ${esc(template.category || "")}
+              </span>
+
+            </div>
+
+            <div class="template-body">
+              ${esc(body)}
+            </div>
+
+            <div
+              style="font-size:10px;color:#82939e">
+
+              Language:
+              ${esc(template.language || "")}
+
+            </div>
+
+          </div>
+        `;
+
+      })
+      .join("");
+
+}
+
+function populateTemplateSelectors(){
+
+  const single =
+    document.getElementById(
+      "singleTemplate"
+    );
+
+  const bulk =
+    document.getElementById(
+      "bulkTemplate"
+    );
+
+  const options =
+    `
+    <option value="">
+      Select template
+    </option>
+    ` +
+    templates
+      .filter(
+        t =>
+          String(
+            t.status
+          ).toUpperCase() ===
+          "APPROVED"
+      )
+      .map(
+        (t,index) =>
+          `<option value="${index}">
+            ${esc(t.name)}
+            ·
+            ${esc(t.language)}
+          </option>`
+      )
+      .join("");
+
+  single.innerHTML =
+    options;
+
+  bulk.innerHTML =
+    options;
+}
+
+function selectedTemplate(
+  selectorId
+){
+
+  const selector =
+    document.getElementById(
+      selectorId
+    );
+
+  const index =
+    Number(
+      selector.value
+    );
+
+  if(
+    !Number.isInteger(index) ||
+    !templates[index]
+  ){
+    return null;
+  }
+
+  return templates[index];
+}
+
+function countVariables(
+  template
+){
+
+  if(!template)
+    return [];
+
+  const variables = [];
+
+  (
+    template.components || []
+  ).forEach(
+    component => {
+
+      const text =
+        component.text ||
+        "";
+
+      const matches =
+        text.match(
+          /\{\{\d+\}\}/g
+        ) || [];
+
+      matches.forEach(
+        match => {
+
+          variables.push({
+            component:
+              component.type,
+            placeholder:
+              match
+          });
 
         }
       );
 
-    });
+    }
+  );
+
+  return variables;
+}
+
+
+/* ============================================================
+   SINGLE MESSAGE
+============================================================ */
+
+function toggleSingleType(){
+
+  const type =
+    document.getElementById(
+      "singleType"
+    ).value;
+
+  const templateField =
+    document.getElementById(
+      "singleTemplateField"
+    );
+
+  const textField =
+    document.getElementById(
+      "singleTextField"
+    );
+
+  if(type === "template"){
+
+    templateField.style.display =
+      "block";
+
+    textField.style.display =
+      "none";
+
+    renderSingleVariables();
+
+  }else{
+
+    templateField.style.display =
+      "none";
+
+    textField.style.display =
+      "block";
+
+    document.getElementById(
+      "singleVariables"
+    ).innerHTML =
+      "";
+
+  }
+}
+
+function renderSingleVariables(){
+
+  const template =
+    selectedTemplate(
+      "singleTemplate"
+    );
+
+  const container =
+    document.getElementById(
+      "singleVariables"
+    );
+
+  if(!template){
+
+    container.innerHTML =
+      "";
+
+    return;
+  }
+
+  const variables =
+    countVariables(
+      template
+    );
+
+  if(!variables.length){
+
+    container.innerHTML =
+      `<p style="font-size:12px;color:#718897">
+        This template has no variables.
+      </p>`;
+
+    return;
+  }
+
+  container.innerHTML =
+    `
+    <label>
+      Template Variables
+    </label>
+
+    <div
+      style="
+        display:grid;
+        grid-template-columns:
+          repeat(
+            auto-fit,
+            minmax(180px,1fr)
+          );
+        gap:10px;
+      "
+    >
+
+      ${variables
+        .map(
+          (v,index) =>
+            `
+            <input
+              class="single-variable"
+              data-index="${index}"
+              placeholder="${esc(
+                v.component
+              )} ${esc(
+                v.placeholder
+              )}"
+            >
+            `
+        )
+        .join("")}
+
+    </div>
+    `;
+}
+
+async function sendSingle(){
+
+  try{
+
+    const country =
+      document.getElementById(
+        "singleCountry"
+      ).value;
+
+    const phone =
+      document.getElementById(
+        "singlePhone"
+      ).value;
+
+    const fullPhone =
+      `${country}${phone.replace(/\D/g,"")}`;
+
+    if(!country){
+
+      toast(
+        "Select a country"
+      );
+
+      return;
+    }
+
+    if(
+      !phone.replace(/\D/g,"")
+    ){
+
+      toast(
+        "Enter a phone number"
+      );
+
+      return;
+    }
+
+    const type =
+      document.getElementById(
+        "singleType"
+      ).value;
+
+    let payload;
+
+    if(type === "text"){
+
+      payload = {
+        to:fullPhone,
+        type:"text",
+        text:
+          document.getElementById(
+            "singleMessage"
+          ).value
+      };
+
+    }else{
+
+      const template =
+        selectedTemplate(
+          "singleTemplate"
+        );
+
+      if(!template){
+
+        toast(
+          "Select a template"
+        );
+
+        return;
+      }
+
+      const variables =
+        [
+          ...document.querySelectorAll(
+            ".single-variable"
+          )
+        ].map(
+          input =>
+            input.value
+        );
+
+      payload = {
+        to:fullPhone,
+        type:"template",
+        template:{
+          name:
+            template.name,
+          language:
+            template.language,
+          components:
+            buildFrontendComponents(
+              template,
+              variables
+            )
+        }
+      };
+
+    }
+
+    toast(
+      "Sending..."
+    );
+
+    await api(
+      "/api/messages/send",
+      {
+        method:"POST",
+        body:
+          JSON.stringify(
+            payload
+          )
+      }
+    );
+
+    toast(
+      "Message accepted by Meta"
+    );
+
+    document.getElementById(
+      "singleMessage"
+    ).value = "";
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function buildFrontendComponents(
+  template,
+  variables
+){
+
+  let index = 0;
+
+  return (
+    template.components || []
+  )
+  .map(
+    component => {
+
+      if(
+        component.type !== "BODY" &&
+        component.type !== "HEADER"
+      ){
+        return null;
+      }
+
+      const matches =
+        (
+          component.text || ""
+        ).match(
+          /\{\{\d+\}\}/g
+        ) || [];
+
+      if(!matches.length)
+        return null;
+
+      return {
+        type:
+          component.type.toLowerCase(),
+        parameters:
+          matches.map(
+            () => ({
+              type:"text",
+              text:
+                String(
+                  variables[
+                    index++
+                  ] || ""
+                )
+            })
+          )
+      };
+
+    }
+  )
+  .filter(Boolean);
+
+}
+
+
+/* ============================================================
+   CONTACTS
+============================================================ */
+
+async function loadContacts(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/contacts"
+      );
+
+    contacts =
+      result.data || [];
+
+    renderContacts();
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function renderContacts(){
+
+  const tbody =
+    document.getElementById(
+      "contactsTable"
+    );
+
+  if(!contacts.length){
+
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5">
+          <div class="empty">
+            No contacts yet.
+          </div>
+        </td>
+      </tr>
+    `;
+
+    return;
+  }
+
+  tbody.innerHTML =
+    contacts
+      .map(
+        contact => {
+
+          const contactLists =
+            contact.lists
+              ?.map(
+                id =>
+                  lists.find(
+                    l =>
+                      l.id === id
+                  )?.name
+              )
+              .filter(Boolean)
+              .join(", ") ||
+            "—";
+
+          return `
+            <tr>
+
+              <td>
+                ${esc(
+                  contact.name
+                )}
+              </td>
+
+              <td>
+                ${esc(
+                  contact.countryCode ||
+                  "—"
+                )}
+              </td>
+
+              <td>
+                ${esc(
+                  contact.phone
+                )}
+              </td>
+
+              <td>
+                ${esc(
+                  contactLists
+                )}
+              </td>
+
+              <td>
+                ${formatDate(
+                  contact.createdAt
+                )}
+              </td>
+
+            </tr>
+          `;
+
+        }
+      )
+      .join("");
+
+}
+
+
+/* ============================================================
+   CSV IMPORT
+============================================================ */
+
+async function importCSV(event){
+
+  const file =
+    event.target.files[0];
+
+  if(!file)
+    return;
+
+  const text =
+    await file.text();
+
+  const rows =
+    parseCSV(text);
+
+  if(!rows.length){
+
+    toast(
+      "CSV is empty"
+    );
+
+    return;
+  }
+
+  const headers =
+    rows[0].map(
+      h =>
+        h.trim()
+          .toLowerCase()
+    );
+
+  const data =
+    rows
+      .slice(1)
+      .map(row => {
+
+        const object = {};
+
+        headers.forEach(
+          (header,index) => {
+
+            object[header] =
+              row[index] || "";
+
+          }
+        );
+
+        const countryCode =
+          String(
+            object.countrycode ||
+            object.country_code ||
+            object.dialcode ||
+            ""
+          ).replace(
+            /\D/g,
+            ""
+          );
+
+        const number =
+          String(
+            object.number ||
+            object.phone ||
+            object.mobile ||
+            ""
+          ).replace(
+            /\D/g,
+            ""
+          );
+
+        const variables =
+          Object.keys(object)
+            .filter(
+              key =>
+                /^var\d+$/i.test(
+                  key
+                )
+            )
+            .sort(
+              (a,b) =>
+                Number(
+                  a.replace(
+                    /\D/g,
+                    ""
+                  )
+                ) -
+                Number(
+                  b.replace(
+                    /\D/g,
+                    ""
+                  )
+                )
+            )
+            .map(
+              key =>
+                object[key]
+            );
+
+        return {
+          name:
+            object.name ||
+            object.fullname ||
+            "",
+          countryCode,
+          phone:
+            countryCode +
+            number,
+          wa_id:
+            countryCode +
+            number,
+          variables
+        };
+
+      })
+      .filter(
+        c =>
+          c.phone
+      );
+
+  try{
+
+    const result =
+      await api(
+        "/api/contacts/import",
+        {
+          method:"POST",
+          body:
+            JSON.stringify({
+              contacts:data
+            })
+        }
+      );
+
+    document.getElementById(
+      "importStatus"
+    ).textContent =
+      `${result.total} contacts processed.`;
+
+    toast(
+      `${result.total} contacts imported`
+    );
+
+    loadContacts();
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function parseCSV(text){
+
+  const rows = [];
+
+  let row = [];
+
+  let cell = "";
+
+  let quoted = false;
+
+  for(
+    let i = 0;
+    i < text.length;
+    i++
+  ){
+
+    const char =
+      text[i];
+
+    const next =
+      text[i + 1];
+
+    if(
+      char === '"' &&
+      quoted &&
+      next === '"'
+    ){
+
+      cell += '"';
+      i++;
+      continue;
+
+    }
+
+    if(
+      char === '"'
+    ){
+
+      quoted =
+        !quoted;
+
+      continue;
+    }
+
+    if(
+      char === "," &&
+      !quoted
+    ){
+
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+
+    if(
+      (
+        char === "\n" ||
+        char === "\r"
+      ) &&
+      !quoted
+    ){
+
+      if(
+        char === "\r" &&
+        next === "\n"
+      ){
+        i++;
+      }
+
+      row.push(cell);
+      cell = "";
+
+      if(
+        row.some(
+          value =>
+            value.trim()
+        )
+      ){
+        rows.push(row);
+      }
+
+      row = [];
+
+      continue;
+    }
+
+    cell += char;
+
+  }
+
+  row.push(cell);
+
+  if(
+    row.some(
+      value =>
+        value.trim()
+    )
+  ){
+    rows.push(row);
+  }
+
+  return rows;
+
+}
+
+
+/* ============================================================
+   LISTS
+============================================================ */
+
+async function loadLists(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/lists"
+      );
+
+    lists =
+      result.data || [];
+
+    renderLists();
+    populateBulkLists();
+    renderContacts();
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function renderLists(){
+
+  const container =
+    document.getElementById(
+      "listsContainer"
+    );
+
+  if(!lists.length){
+
+    container.innerHTML =
+      `<div class="empty">
+        No lists created yet.
+      </div>`;
+
+    return;
+  }
+
+  container.innerHTML =
+    lists
+      .map(
+        list => `
+          <div
+            style="
+              display:flex;
+              justify-content:space-between;
+              align-items:center;
+              padding:12px 0;
+              border-bottom:
+                1px solid
+                rgba(20,70,100,.08);
+            "
+          >
+
+            <div>
+              <strong>
+                ${esc(list.name)}
+              </strong>
+
+              <div
+                style="
+                  font-size:10px;
+                  color:#81929d;
+                  margin-top:3px;
+                "
+              >
+                ${list.contactCount}
+                contacts
+              </div>
+            </div>
+
+            <span class="badge badge-blue">
+              List
+            </span>
+
+          </div>
+        `
+      )
+      .join("");
+
+}
+
+async function createList(){
+
+  const name =
+    prompt(
+      "Enter list name:"
+    );
+
+  if(!name)
+    return;
+
+  try{
+
+    await api(
+      "/api/lists",
+      {
+        method:"POST",
+        body:
+          JSON.stringify({
+            name
+          })
+      }
+    );
+
+    toast(
+      "List created"
+    );
+
+    loadLists();
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function populateBulkLists(){
+
+  const select =
+    document.getElementById(
+      "bulkList"
+    );
+
+  select.innerHTML =
+    `<option value="">
+      Select contact list
+    </option>` +
+    lists
+      .map(
+        list =>
+          `
+          <option value="${list.id}">
+            ${esc(list.name)}
+            (${list.contactCount})
+          </option>
+          `
+      )
+      .join("");
+
+}
+
+async function updateBulkCount(){
+
+  const listId =
+    document.getElementById(
+      "bulkList"
+    ).value;
+
+  const list =
+    lists.find(
+      l =>
+        l.id === listId
+    );
+
+  document.getElementById(
+    "bulkCount"
+  ).textContent =
+    list
+      ? `${list.contactCount} contacts selected`
+      : "0 contacts selected";
+
+}
+
+
+/* ============================================================
+   BULK TEMPLATE
+============================================================ */
+
+function renderBulkVariables(){
+
+  const template =
+    selectedTemplate(
+      "bulkTemplate"
+    );
+
+  const container =
+    document.getElementById(
+      "bulkVariables"
+    );
+
+  if(!template){
+
+    container.innerHTML =
+      "";
+
+    return;
+  }
+
+  const variables =
+    countVariables(
+      template
+    );
+
+  if(!variables.length){
+
+    container.innerHTML =
+      `<p style="font-size:12px;color:#718897">
+        This template has no variables.
+      </p>`;
+
+    return;
+  }
+
+  container.innerHTML =
+    `
+    <label>
+      CSV Variable Mapping
+    </label>
+
+    <p
+      style="
+        font-size:11px;
+        color:#718897;
+      "
+    >
+      Variables are read from CSV columns
+      var1, var2, var3...
+    </p>
+
+    ${variables
+      .map(
+        (v,index) =>
+          `
+          <div
+            style="
+              display:flex;
+              gap:10px;
+              align-items:center;
+              margin-bottom:8px;
+            "
+          >
+
+            <span
+              style="
+                width:80px;
+                font-size:11px;
+              "
+            >
+              ${esc(
+                v.placeholder
+              )}
+            </span>
+
+            <select
+              disabled
+              style="max-width:220px"
+            >
+              <option>
+                var${index + 1}
+              </option>
+            </select>
+
+          </div>
+          `
+      )
+      .join("")}
+    `;
+
+}
+
+
+/* ============================================================
+   CREATE BROADCAST
+============================================================ */
+
+async function createBroadcast(){
+
+  try{
+
+    const listId =
+      document.getElementById(
+        "bulkList"
+      ).value;
+
+    const template =
+      selectedTemplate(
+        "bulkTemplate"
+      );
+
+    if(!listId){
+
+      toast(
+        "Select a contact list"
+      );
+
+      return;
+    }
+
+    if(!template){
+
+      toast(
+        "Select an approved template"
+      );
+
+      return;
+    }
+
+    const campaignName =
+      document.getElementById(
+        "bulkCampaignName"
+      ).value;
+
+    const delayMs =
+      Number(
+        document.getElementById(
+          "bulkDelay"
+        ).value
+      );
+
+    toast(
+      "Creating broadcast..."
+    );
+
+    const result =
+      await api(
+        "/api/campaigns",
+        {
+          method:"POST",
+          body:
+            JSON.stringify({
+              name:
+                campaignName,
+              listId,
+              template:{
+                name:
+                  template.name,
+                language:
+                  template.language,
+                components:
+                  template.components ||
+                  []
+              },
+              delayMs
+            })
+        }
+      );
+
+    toast(
+      `Broadcast started for ${result.total} contacts`
+    );
+
+    showSection(
+      "broadcast"
+    );
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+
+/* ============================================================
+   CAMPAIGNS
+============================================================ */
+
+async function loadCampaigns(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/campaigns"
+      );
+
+    const campaigns =
+      result.data || [];
+
+    const tbody =
+      document.getElementById(
+        "campaignTable"
+      );
+
+    if(!campaigns.length){
+
+      tbody.innerHTML =
+        `<tr>
+          <td colspan="7">
+            <div class="empty">
+              No campaigns yet.
+            </div>
+          </td>
+        </tr>`;
+
+      return;
+    }
+
+    tbody.innerHTML =
+      campaigns
+        .map(
+          campaign => {
+
+            const badge =
+              campaign.status ===
+              "completed"
+                ? "badge-green"
+                : "badge-blue";
+
+            return `
+              <tr>
+
+                <td>
+                  <strong>
+                    ${esc(
+                      campaign.name
+                    )}
+                  </strong>
+
+                  <div
+                    style="
+                      font-size:10px;
+                      color:#82939e;
+                    "
+                  >
+                    ${formatDate(
+                      campaign.createdAt
+                    )}
+                  </div>
+                </td>
+
+                <td>
+                  <span
+                    class="badge ${badge}">
+                    ${esc(
+                      campaign.status
+                    )}
+                  </span>
+                </td>
+
+                <td>
+                  ${campaign.total}
+                </td>
+
+                <td>
+                  ${campaign.sent}
+                </td>
+
+                <td>
+                  ${campaign.delivered}
+                </td>
+
+                <td>
+                  ${campaign.read}
+                </td>
+
+                <td>
+                  ${campaign.failed}
+                </td>
+
+              </tr>
+            `;
+
+          }
+        )
+        .join("");
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+
+/* ============================================================
+   INBOX
+============================================================ */
+
+async function loadInbox(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/inbox"
+      );
+
+    conversations =
+      result.data || [];
+
+    renderConversations();
+
+    if(selectedConversation){
+
+      const stillExists =
+        conversations.find(
+          c =>
+            c.wa_id ===
+            selectedConversation
+        );
+
+      if(stillExists){
+        openConversation(
+          selectedConversation
+        );
+      }
+
+    }
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function renderConversations(){
+
+  const container =
+    document.getElementById(
+      "conversationList"
+    );
+
+  if(!conversations.length){
+
+    container.innerHTML =
+      `<div class="empty">
+        No conversations yet.
+      </div>`;
+
+    return;
+  }
+
+  container.innerHTML =
+    conversations
+      .map(
+        conversation => {
+
+          const name =
+            conversation.contact
+              ?.name ||
+            conversation.wa_id;
+
+          return `
+            <div
+              class="
+                conversation
+                ${
+                  selectedConversation ===
+                  conversation.wa_id
+                    ? "active"
+                    : ""
+                }
+              "
+              onclick="openConversation(
+                '${conversation.wa_id}'
+              )"
+            >
+
+              <div
+                class="conversation-name"
+              >
+                ${esc(name)}
+              </div>
+
+              <div
+                class="conversation-preview"
+              >
+                ${esc(
+                  conversation.lastMessage ||
+                  "No messages"
+                )}
+              </div>
+
+              <div
+                class="conversation-meta"
+              >
+
+                <span>
+                  ${formatDate(
+                    conversation.lastMessageAt
+                  )}
+                </span>
+
+                ${
+                  conversation.unread
+                    ? `
+                      <span class="unread">
+                        ${conversation.unread}
+                      </span>
+                    `
+                    : ""
+                }
+
+              </div>
+
+            </div>
+          `;
+
+        }
+      )
+      .join("");
+
+}
+
+async function openConversation(
+  phone
+){
+
+  selectedConversation =
+    phone;
+
+  renderConversations();
+
+  try{
+
+    const result =
+      await api(
+        `/api/inbox/${phone}/messages`
+      );
+
+    const contact =
+      conversations.find(
+        c =>
+          c.wa_id === phone
+      )?.contact;
+
+    document.getElementById(
+      "chatHeader"
+    ).innerHTML = `
+      <div class="chat-name">
+        ${esc(
+          contact?.name ||
+          phone
+        )}
+      </div>
+
+      <div class="chat-number">
+        ${esc(phone)}
+      </div>
+    `;
+
+    const container =
+      document.getElementById(
+        "chatMessages"
+      );
+
+    const messages =
+      result.data || [];
+
+    container.innerHTML =
+      messages.length
+        ? messages
+            .map(
+              message => `
+                <div
+                  class="
+                    message
+                    ${message.direction}
+                  "
+                >
+
+                  ${esc(
+                    message.text ||
+                    (
+                      message.type ===
+                      "template"
+                        ? `Template: ${
+                            message.templateName
+                          }`
+                        : `[${message.type}]`
+                    )
+                  )}
+
+                  <span
+                    class="message-time"
+                  >
+                    ${formatDate(
+                      message.timestamp
+                    )}
+                    ${
+                      message.direction ===
+                      "outbound"
+                        ? ` · ${esc(
+                            message.status
+                          )}`
+                        : ""
+                    }
+                  </span>
+
+                </div>
+              `
+            )
+            .join("")
+        : `
+          <div class="empty">
+            No messages.
+          </div>
+        `;
+
+    container.scrollTop =
+      container.scrollHeight;
+
+    await api(
+      `/api/inbox/${phone}/read`,
+      {
+        method:"POST"
+      }
+    );
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+async function sendChatMessage(){
+
+  if(!selectedConversation){
+
+    toast(
+      "Select a conversation first"
+    );
+
+    return;
+  }
+
+  const input =
+    document.getElementById(
+      "chatText"
+    );
+
+  const text =
+    input.value.trim();
+
+  if(!text)
+    return;
+
+  try{
+
+    await api(
+      `/api/inbox/${selectedConversation}/send`,
+      {
+        method:"POST",
+        body:
+          JSON.stringify({
+            type:"text",
+            text
+          })
+      }
+    );
+
+    input.value = "";
+
+    await openConversation(
+      selectedConversation
+    );
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+function chatKeydown(event){
+
+  if(
+    event.key === "Enter" &&
+    !event.shiftKey
+  ){
+
+    event.preventDefault();
+
+    sendChatMessage();
+
+  }
+
+}
+
+function filterInbox(){
+
+  const query =
+    document.getElementById(
+      "inboxSearch"
+    ).value
+      .toLowerCase();
+
+  document
+    .querySelectorAll(
+      ".conversation"
+    )
+    .forEach(
+      item => {
+
+        item.style.display =
+          item.textContent
+            .toLowerCase()
+            .includes(query)
+              ? ""
+              : "none";
+
+      }
+    );
+
+}
+
+
+/* ============================================================
+   ACTIVITY
+============================================================ */
+
+async function loadActivity(){
+
+  try{
+
+    const result =
+      await api(
+        "/api/events"
+      );
+
+    const events =
+      result.data || [];
+
+    const container =
+      document.getElementById(
+        "activityContainer"
+      );
+
+    if(!events.length){
+
+      container.innerHTML =
+        `<div class="empty">
+          No events yet.
+        </div>`;
+
+      return;
+    }
+
+    container.innerHTML =
+      events
+        .map(
+          event => `
+            <div
+              style="
+                padding:13px 0;
+                border-bottom:
+                  1px solid
+                  rgba(20,70,100,.08);
+              "
+            >
+
+              <div
+                style="
+                  display:flex;
+                  justify-content:space-between;
+                  gap:10px;
+                "
+              >
+
+                <strong
+                  style="font-size:12px"
+                >
+                  ${esc(
+                    event.type
+                  )}
+                </strong>
+
+                <span
+                  style="
+                    font-size:10px;
+                    color:#80919d;
+                  "
+                >
+                  ${formatDate(
+                    event.timestamp
+                  )}
+                </span>
+
+              </div>
+
+              <pre
+                style="
+                  white-space:pre-wrap;
+                  font-size:10px;
+                  color:#718897;
+                "
+              >${esc(
+                JSON.stringify(
+                  event.data,
+                  null,
+                  2
+                )
+              )}</pre>
+
+            </div>
+          `
+        )
+        .join("");
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+
+/* ============================================================
+   SETTINGS
+============================================================ */
+
+async function loadSettings(){
+
+  try{
+
+    const data =
+      await api(
+        "/api/config"
+      );
+
+    document.getElementById(
+      "settingsPhone"
+    ).textContent =
+      data.phoneNumberId ||
+      "Not configured";
+
+    document.getElementById(
+      "settingsWaba"
+    ).textContent =
+      data.wabaId ||
+      "Not configured";
+
+    document.getElementById(
+      "settingsVersion"
+    ).textContent =
+      data.graphApiVersion;
+
+    document.getElementById(
+      "settingsStatus"
+    ).textContent =
+      data.configured
+        ? "Connected"
+        : "Incomplete";
+
+    document.getElementById(
+      "webhookUrl"
+    ).value =
+      `${window.location.origin}/webhook`;
+
+  }catch(error){
+
+    toast(
+      error.message
+    );
+
+  }
+
+}
+
+
+/* ============================================================
+   INITIALIZE
+============================================================ */
+
+async function initialize(){
+
+  await Promise.all([
+    checkConnection(),
+    loadCountries(),
+    loadDashboard(),
+    loadTemplates(),
+    loadContacts(),
+    loadLists()
+  ]);
+
+  loadCampaigns();
+
+}
+
+initialize();
+
+
+/* ============================================================
+   AUTO REFRESH
+============================================================ */
+
+setInterval(
+  () => {
+
+    if(
+      document
+        .getElementById(
+          "section-inbox"
+        )
+        .classList.contains(
+          "active"
+        )
+    ){
+      loadInbox();
+    }
+
+    if(
+      document
+        .getElementById(
+          "section-broadcast"
+        )
+        .classList.contains(
+          "active"
+        )
+    ){
+      loadCampaigns();
+    }
+
+    if(
+      document
+        .getElementById(
+          "section-dashboard"
+        )
+        .classList.contains(
+          "active"
+        )
+    ){
+      loadDashboard();
+    }
+
+  },
+  10000
+);
 
 </script>
 
