@@ -18,6 +18,7 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const WABA_ID = process.env.WABA_ID;
+const BITRIX_WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
 
 const GRAPH_API_VERSION =
   process.env.GRAPH_API_VERSION || "v23.0";
@@ -271,6 +272,52 @@ app.get("/api/config", (req, res) => {
     wabaId: WABA_ID || "",
     graphApiVersion: GRAPH_API_VERSION
   });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Bitrix24 connection test
+|--------------------------------------------------------------------------
+*/
+app.get("/api/bitrix/test", async (req, res) => {
+  try {
+    if (!BITRIX_WEBHOOK_URL) {
+      return res.status(500).json({
+        ok: false,
+        error: "BITRIX_WEBHOOK_URL is not configured"
+      });
+    }
+
+    const baseUrl = BITRIX_WEBHOOK_URL.endsWith("/")
+      ? BITRIX_WEBHOOK_URL
+      : `${BITRIX_WEBHOOK_URL}/`;
+
+    const response = await fetch(`${baseUrl}profile.json`);
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      return res.status(500).json({
+        ok: false,
+        error:
+          data?.error_description ||
+          data?.error ||
+          "Bitrix API request failed"
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: "Bitrix connection successful",
+      user: data.result || null
+    });
+  } catch (error) {
+    console.error("Bitrix test error:", error);
+
+    return res.status(500).json({
+      ok: false,
+      error: error.message || "Bitrix connection failed"
+    });
+  }
 });
 
 /*
