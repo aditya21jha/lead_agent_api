@@ -420,12 +420,18 @@ app.get("/api/bitrix/lead/:id", async (req, res) => {
       });
     }
 
-    const phoneField = Array.isArray(lead.phone)
-      ? lead.phone
-      : [];
+const phoneField =
+  lead.PHONE ||
+  lead.phone ||
+  [];
 
-    const phone =
-      phoneField.find(p => p.value)?.value || null;
+const phone = Array.isArray(phoneField)
+  ? (
+      phoneField.find(p => p.VALUE)?.VALUE ||
+      phoneField.find(p => p.value)?.value ||
+      null
+    )
+  : phoneField || null;
 
     const languageValue = lead.ufCrm_1690811363903 ?? null;
 
