@@ -1,0 +1,12 @@
+{
+  "name": "lead-agent-api",
+  "version": "1.0.0",
+  "description": "Custom WhatsApp Cloud API with webhook and tracking",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
