@@ -1,3 +1,4 @@
+
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -7,42 +8,42 @@ const {
 } = require("libphonenumber-js");
 
 const app = express();
-
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 3000;
-
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const WABA_ID = process.env.WABA_ID;
 const BITRIX_WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
-
-const GRAPH_API_VERSION =
-  process.env.GRAPH_API_VERSION || "v23.0";
-
-const GRAPH_URL =
-  `https://graph.facebook.com/${GRAPH_API_VERSION}`;
-
-/*
-|--------------------------------------------------------------------------
-| Simple local data store
-|--------------------------------------------------------------------------
-|
-| This keeps the application immediately functional.
-| For permanent production storage, connect these collections to
-| PostgreSQL/Supabase/another database later.
-|
-*/
+const GRAPH_API_VERSION = process.env.GRAPH_API_VERSION || "v23.0";
+const GRAPH_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 const DATA_DIR = path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "database.json");
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+const STAGES = {
+  CONTACTED: "Contacted",
+  PENDING_FOLLOWUP: "Pending for Follow-up",
+  FOLLOWUP_DONE: "Follow-up Done",
+  FINAL_REMINDER: "Final Reminder",
+  WAITING_RESPONSE: "Waiting for Response",
+  PHOTO_RECEIVED: "Photo Received",
+  JUNK: "Junk"
+};
+
+const STAGE_META = {
+  [STAGES.CONTACTED]: { color: "#3b82f6", tone: "blue" },
+  [STAGES.PENDING_FOLLOWUP]: { color: "#f59e0b", tone: "orange" },
+  [STAGES.FOLLOWUP_DONE]: { color: "#8b5cf6", tone: "purple" },
+  [STAGES.FINAL_REMINDER]: { color: "#d97706", tone: "amber" },
+  [STAGES.WAITING_RESPONSE]: { color: "#10b981", tone: "green" },
+  [STAGES.PHOTO_RECEIVED]: { color: "#0f9aa8", tone: "teal" },
+  [STAGES.JUNK]: { color: "#dc3545", tone: "red" }
+};
 
 const defaultDatabase = {
   contacts: [],
@@ -51,132 +52,92 @@ const defaultDatabase = {
   messages: [],
   campaigns: [],
   templates: [],
-  events: []
+  templateConfigs: {},
+  events: [],
+  leads: [],
+  settings: {
+    followup1Days: 1,
+    followup2Days: 3,
+    finalReminderDays: 2
+  },
+  connectedNumbers: []
 };
 
 function loadDatabase() {
   try {
     if (!fs.existsSync(DATA_FILE)) {
-      fs.writeFileSync(
-        DATA_FILE,
-        JSON.stringify(defaultDatabase, null, 2)
-      );
-
+      fs.writeFileSync(DATA_FILE, JSON.stringify(defaultDatabase, null, 2));
       return structuredClone(defaultDatabase);
     }
-
-    const data = JSON.parse(
-      fs.readFileSync(DATA_FILE, "utf8")
-    );
-
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     return {
       ...structuredClone(defaultDatabase),
-      ...data
+      ...data,
+      settings: {
+        ...structuredClone(defaultDatabase.settings),
+        ...(data.settings || {})
+      }
     };
   } catch (error) {
     console.error("Database load error:", error);
     return structuredClone(defaultDatabase);
   }
 }
-
 let db = loadDatabase();
 
 function saveDatabase() {
   try {
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify(db, null, 2)
-    );
+    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
   } catch (error) {
     console.error("Database save error:", error);
   }
 }
-
-/*
-|--------------------------------------------------------------------------
-| Utilities
-|--------------------------------------------------------------------------
-*/
-
-function now() {
-  return new Date().toISOString();
-}
-
-function cleanPhone(value) {
-  return String(value || "")
-    .replace(/\D/g, "");
-}
-
+function now() { return new Date().toISOString(); }
+function cleanPhone(value) { return String(value || "").replace(/\D/g, ""); }
 function makeId(prefix = "id") {
-  return `${prefix}_${Date.now()}_${Math.random()
-    .toString(36)
-    .slice(2, 9)}`;
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
-
 function addEvent(type, data = {}) {
-  db.events.unshift({
-    id: makeId("event"),
-    type,
-    timestamp: now(),
-    data
-  });
-
-  db.events = db.events.slice(0, 500);
-
+  db.events.unshift({ id: makeId("event"), type, timestamp: now(), data });
+  db.events = db.events.slice(0, 1000);
   saveDatabase();
 }
-
 function getContact(phone) {
   const normalized = cleanPhone(phone);
-
-  return db.contacts.find(
-    c =>
-      cleanPhone(c.wa_id || c.phone) === normalized
-  );
+  return db.contacts.find(c => cleanPhone(c.wa_id || c.phone) === normalized);
 }
-
-function upsertContact(contactData) {
-  const phone =
-    cleanPhone(contactData.wa_id) ||
-    cleanPhone(contactData.phone);
-
+function upsertContact(data) {
+  const phone = cleanPhone(data.wa_id || data.phone);
   if (!phone) return null;
-
   let contact = getContact(phone);
-
   if (!contact) {
     contact = {
       id: makeId("contact"),
-      name:
-        contactData.name ||
-        contactData.profileName ||
-        "WhatsApp Contact",
-      countryCode: contactData.countryCode || "",
-      phone: phone,
+      name: data.name || data.profileName || "WhatsApp Contact",
+      countryCode: data.countryCode || "",
+      phone,
       wa_id: phone,
-      tags: [],
+      language: data.language || "",
+      tags: Array.isArray(data.tags) ? data.tags : [],
+      labels: Array.isArray(data.labels) ? data.labels : [],
       lists: [],
+      variables: Array.isArray(data.variables) ? data.variables : [],
       createdAt: now(),
       updatedAt: now()
     };
-
     db.contacts.push(contact);
   } else {
-    if (contactData.name) {
-      contact.name = contactData.name;
-    }
-
+    if (data.name) contact.name = data.name;
+    if (data.language) contact.language = data.language;
+    if (Array.isArray(data.variables) && data.variables.length) contact.variables = data.variables;
+    if (Array.isArray(data.labels)) contact.labels = [...new Set([...(contact.labels || []), ...data.labels])];
     contact.updatedAt = now();
   }
-
   saveDatabase();
-
   return contact;
 }
-
 function getConversation(phone) {
   const normalized = cleanPhone(phone);
-
   if (!db.conversations[normalized]) {
     db.conversations[normalized] = {
       wa_id: normalized,
@@ -187,624 +148,317 @@ function getConversation(phone) {
       lastDirection: null
     };
   }
-
   return db.conversations[normalized];
 }
-
-/*
-|--------------------------------------------------------------------------
-| Meta API
-|--------------------------------------------------------------------------
-*/
-
-async function metaRequest(endpoint, options = {}) {
-  if (!WHATSAPP_TOKEN) {
-    throw new Error("WHATSAPP_TOKEN is not configured.");
-  }
-
-  const response = await fetch(
-    `${GRAPH_URL}${endpoint}`,
-    {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      }
+function metaRequest(endpoint, options = {}) {
+  if (!WHATSAPP_TOKEN) throw new Error("WHATSAPP_TOKEN is not configured.");
+  return fetch(`${GRAPH_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
     }
-  );
-
-  const text = await response.text();
-
-  let data;
-
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = {
-      raw: text
-    };
-  }
-
-  if (!response.ok) {
-    const error = new Error(
-      data?.error?.message ||
-      data?.message ||
-      "Meta API request failed"
-    );
-
-    error.status = response.status;
-    error.meta = data;
-
-    throw error;
-  }
-
-  return data;
+  }).then(async response => {
+    const text = await response.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    if (!response.ok) {
+      const error = new Error(data?.error?.message || data?.message || "Meta API request failed");
+      error.status = response.status;
+      error.meta = data;
+      throw error;
+    }
+    return data;
+  });
 }
-
-/*
-|--------------------------------------------------------------------------
-| Health / configuration
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    ok: true,
-    service: "Royal Hair Istanbul WhatsApp Dashboard",
-    timestamp: now(),
-    whatsappConfigured: Boolean(
-      WHATSAPP_TOKEN &&
-      PHONE_NUMBER_ID &&
-      WABA_ID
-    )
+function stageColor(stage) { return STAGE_META[stage]?.color || "#64748b"; }
+function addDays(iso, days) {
+  return new Date(new Date(iso).getTime() + Number(days || 0) * 86400000).toISOString();
+}
+function leadForPhone(phone) {
+  const p = cleanPhone(phone);
+  return db.leads.find(l => cleanPhone(l.phone) === p);
+}
+function leadForBitrix(id) {
+  return db.leads.find(l => String(l.bitrixId) === String(id));
+}
+function createOrUpdateLead(data = {}) {
+  const phone = cleanPhone(data.phone);
+  if (!phone) return null;
+  let lead = data.bitrixId ? leadForBitrix(data.bitrixId) : leadForPhone(phone);
+  const contact = upsertContact({
+    phone,
+    wa_id: phone,
+    name: data.name,
+    language: data.language
   });
-});
-
-app.get("/api/config", (req, res) => {
-  res.json({
-    configured: Boolean(
-      WHATSAPP_TOKEN &&
-      PHONE_NUMBER_ID &&
-      WABA_ID
-    ),
-    phoneNumberId: PHONE_NUMBER_ID || "",
-    wabaId: WABA_ID || "",
-    graphApiVersion: GRAPH_API_VERSION
-  });
-});
-
-/*
-|--------------------------------------------------------------------------
-| Bitrix24 connection test
-|--------------------------------------------------------------------------
-*/
-app.get("/api/bitrix/test", async (req, res) => {
-  try {
-    if (!BITRIX_WEBHOOK_URL) {
-      return res.status(500).json({
-        ok: false,
-        error: "BITRIX_WEBHOOK_URL is not configured"
-      });
-    }
-
-    const baseUrl = BITRIX_WEBHOOK_URL.endsWith("/")
-      ? BITRIX_WEBHOOK_URL
-      : `${BITRIX_WEBHOOK_URL}/`;
-
-    const response = await fetch(`${baseUrl}profile.json`);
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      return res.status(500).json({
-        ok: false,
-        error:
-          data?.error_description ||
-          data?.error ||
-          "Bitrix API request failed"
-      });
-    }
-
-    return res.json({
-      ok: true,
-      message: "Bitrix connection successful",
-      user: data.result || null
-    });
-  } catch (error) {
-    console.error("Bitrix test error:", error);
-
-    return res.status(500).json({
-      ok: false,
-      error: error.message || "Bitrix connection failed"
-    });
-  }
-});
-
-app.get("/api/bitrix/lead-fields", async (req, res) => {
-  try {
-    if (!BITRIX_WEBHOOK_URL) {
-      return res.status(500).json({
-        ok: false,
-        error: "BITRIX_WEBHOOK_URL is not configured"
-      });
-    }
-
-    const response = await fetch(
-      `${BITRIX_WEBHOOK_URL}crm.item.fields.json?entityTypeId=1`
-    );
-
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      return res.status(500).json({
-        ok: false,
-        error: data.error_description || data.error || "Bitrix API error"
-      });
-    }
-
-    const fields = data.result?.fields || {};
-
-    const languageField = Object.entries(fields).find(
-      ([code, field]) =>
-        String(field.title || "").toLowerCase() === "language"
-    );
-
-    res.json({
-      ok: true,
-      languageField: languageField
-        ? {
-            code: languageField[0],
-            details: languageField[1]
-          }
-        : null
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      ok: false,
-      error: error.message
-    });
-  }
-});
-
-app.get("/api/bitrix/leads", async (req, res) => {
-  try {
-    if (!BITRIX_WEBHOOK_URL) {
-      return res.status(500).json({
-        ok: false,
-        error: "BITRIX_WEBHOOK_URL is not configured"
-      });
-    }
-
-    const response = await fetch(
-      `${BITRIX_WEBHOOK_URL}crm.item.list.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          entityTypeId: 1,
-          select: [
-            "id",
-            "title",
-            "phone",
-            "ufCrm_1690811363903",
-            "dateCreate",
-            "dateModify"
-          ],
-          order: {
-            id: "DESC"
-          },
-          start: 0
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      return res.status(500).json({
-        ok: false,
-        error:
-          data.error_description ||
-          data.error ||
-          "Bitrix API error"
-      });
-    }
-
-    res.json({
-      ok: true,
-      data: data.result?.items || []
-    });
-  } catch (error) {
-    res.status(500).json({
-      ok: false,
-      error: error.message
-    });
-  }
-});
-
-app.get("/api/bitrix/lead/:id", async (req, res) => {
-  try {
-    if (!BITRIX_WEBHOOK_URL) {
-      return res.status(500).json({
-        ok: false,
-        error: "BITRIX_WEBHOOK_URL is not configured"
-      });
-    }
-
-    const leadId = Number(req.params.id);
-
-    if (!leadId) {
-      return res.status(400).json({
-        ok: false,
-        error: "Invalid lead ID"
-      });
-    }
-
-    const response = await fetch(
-      `${BITRIX_WEBHOOK_URL}crm.item.get.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          entityTypeId: 1,
-          id: leadId
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      return res.status(500).json({
-        ok: false,
-        error:
-          data.error_description ||
-          data.error ||
-          "Bitrix API error"
-      });
-    }
-
-    const lead = data.result?.item;
-
-    if (!lead) {
-      return res.status(404).json({
-        ok: false,
-        error: "Lead not found"
-      });
-    }
-
-const phoneField =
-  lead.PHONE ||
-  lead.phone ||
-  [];
-
-const phone = Array.isArray(phoneField)
-  ? (
-      phoneField.find(p => p.VALUE)?.VALUE ||
-      phoneField.find(p => p.value)?.value ||
-      null
-    )
-  : phoneField || null;
-
-    const languageValue = lead.ufCrm_1690811363903 ?? null;
-
-    res.json({
-      ok: true,
-      lead: {
-        id: lead.id,
-        title: lead.title,
-        phone,
-        languageValue
-      }
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      ok: false,
-      error: error.message
-    });
-  }
-});
-
-app.post("/api/bitrix/send-template", async (req, res) => {
-  try {
-    const {
-      leadId,
-      templateName,
-      languageCode,
-      components = []
-    } = req.body;
-
-    if (!leadId || !templateName || !languageCode) {
-      return res.status(400).json({
-        ok: false,
-        error: "leadId, templateName and languageCode are required"
-      });
-    }
-
-    if (!BITRIX_WEBHOOK_URL) {
-      return res.status(500).json({
-        ok: false,
-        error: "BITRIX_WEBHOOK_URL is not configured"
-      });
-    }
-
-    if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
-      return res.status(500).json({
-        ok: false,
-        error: "WhatsApp credentials are not configured"
-      });
-    }
-
-    // 1. Get the Bitrix lead
-    const leadResponse = await fetch(
-      `${BITRIX_WEBHOOK_URL}crm.item.get.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          entityTypeId: 1,
-          id: Number(leadId)
-        })
-      }
-    );
-
-    const leadData = await leadResponse.json();
-
-    if (!leadResponse.ok || leadData.error) {
-      return res.status(500).json({
-        ok: false,
-        error:
-          leadData.error_description ||
-          leadData.error ||
-          "Could not retrieve Bitrix lead"
-      });
-    }
-
-    const lead = leadData.result?.item;
-
-    if (!lead) {
-      return res.status(404).json({
-        ok: false,
-        error: "Bitrix lead not found"
-      });
-    }
-
-    // 2. Get phone
-    const phoneField = lead.PHONE || lead.phone || [];
-
-    const phone = Array.isArray(phoneField)
-      ? (
-          phoneField.find(p => p.VALUE)?.VALUE ||
-          phoneField.find(p => p.value)?.value ||
-          null
-        )
-      : phoneField || null;
-
-    if (!phone) {
-      return res.status(400).json({
-        ok: false,
-        error: "No phone number found on this Bitrix lead"
-      });
-    }
-
-    // 3. Send WhatsApp template
-    const graphUrl =
-      `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}/messages`;
-
-    const whatsappResponse = await fetch(graphUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        to: phone.replace(/\D/g, ""),
-        type: "template",
-        template: {
-          name: templateName,
-          language: {
-            code: languageCode
-          },
-          ...(Array.isArray(components) && components.length
-            ? { components }
-            : {})
-        }
-      })
-    });
-
-    const whatsappData = await whatsappResponse.json();
-
-    if (!whatsappResponse.ok || whatsappData.error) {
-      return res.status(500).json({
-        ok: false,
-        error:
-          whatsappData.error?.message ||
-          "WhatsApp message failed",
-        whatsapp: whatsappData
-      });
-    }
-
-    const contactedAt = now();
-    const contactedDay = new Date(contactedAt).toLocaleDateString(
-      "en-US",
-      { weekday: "long", timeZone: "Europe/Istanbul" }
-    );
-
-    addEvent("bitrix_whatsapp_sent", {
-      leadId: Number(leadId),
-      phone: cleanPhone(phone),
-      template: templateName,
-      language: languageCode,
-      contactedDay,
-      contactedAt,
-      messageId: whatsappData?.messages?.[0]?.id || null
-    });
-
-    res.json({
-      ok: true,
-      message: "WhatsApp template accepted",
-      leadId: Number(leadId),
+  if (!lead) {
+    lead = {
+      id: makeId("lead"),
+      bitrixId: data.bitrixId || null,
+      contactId: contact?.id || null,
+      name: data.name || contact?.name || phone,
       phone,
-      template: templateName,
-      language: languageCode,
-      contactedDay,
-      contactedAt,
-      whatsapp: whatsappData
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      ok: false,
-      error: error.message
-    });
+      language: data.language || contact?.language || "",
+      source: data.source || "Bitrix",
+      stage: data.stage || null,
+      stageHistory: data.stage ? [{ stage: data.stage, at: now(), reason: "created" }] : [],
+      optOut: false,
+      createdAt: data.createdAt || now(),
+      updatedAt: now()
+    };
+    db.leads.push(lead);
+  } else {
+    lead.contactId = contact?.id || lead.contactId;
+    lead.bitrixId = data.bitrixId || lead.bitrixId;
+    lead.name = data.name || lead.name;
+    lead.language = data.language || lead.language;
+    lead.updatedAt = now();
   }
-});
-
-/*
-|--------------------------------------------------------------------------
-| Country codes
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/countries", (req, res) => {
-  const displayNames = new Intl.DisplayNames(
-    ["en"],
-    {
-      type: "region"
+  saveDatabase();
+  return lead;
+}
+function setLeadStage(lead, stage, reason = "manual") {
+  if (!lead) return null;
+  if (lead.stage !== stage) {
+    lead.stage = stage;
+    lead.stageHistory = Array.isArray(lead.stageHistory) ? lead.stageHistory : [];
+    lead.stageHistory.push({ stage, at: now(), reason });
+    if (lead.stageHistory.length > 100) lead.stageHistory = lead.stageHistory.slice(-100);
+  }
+  lead.updatedAt = now();
+  saveDatabase();
+  addEvent("lead_stage_changed", { leadId: lead.id, phone: lead.phone, stage, reason });
+  return lead;
+}
+function scheduleAfterInitial(lead, contactedAt) {
+  lead.contactedAt = contactedAt;
+  lead.followup1DueAt = addDays(contactedAt, db.settings.followup1Days);
+  lead.followup1SentAt = null;
+  lead.followup2DueAt = null;
+  lead.followup2SentAt = null;
+  lead.finalReminderDueAt = null;
+  lead.finalReminderSentAt = null;
+}
+function scheduleAfterFollowup1(lead, sentAt) {
+  lead.followup1SentAt = sentAt;
+  lead.followup2DueAt = addDays(sentAt, db.settings.followup2Days);
+  lead.finalReminderDueAt = addDays(sentAt, db.settings.followup2Days + db.settings.finalReminderDays);
+}
+function scheduleAfterFollowup2(lead, sentAt) {
+  lead.followup2SentAt = sentAt;
+  lead.finalReminderDueAt = addDays(sentAt, db.settings.finalReminderDays);
+}
+function markContacted(lead, messageMeta, isInitial = false) {
+  const sentAt = messageMeta.sentAt || now();
+  if (isInitial || !lead.contactedAt) {
+    scheduleAfterInitial(lead, sentAt);
+    setLeadStage(lead, STAGES.CONTACTED, "initial_message_sent");
+  } else if (!lead.followup1SentAt) {
+    scheduleAfterFollowup1(lead, sentAt);
+    setLeadStage(lead, STAGES.FOLLOWUP_DONE, "followup_1_sent");
+  } else if (!lead.followup2SentAt) {
+    scheduleAfterFollowup2(lead, sentAt);
+    setLeadStage(lead, STAGES.FOLLOWUP_DONE, "followup_2_sent");
+  } else {
+    lead.finalReminderSentAt = sentAt;
+    setLeadStage(lead, STAGES.WAITING_RESPONSE, "final_reminder_sent");
+  }
+  lead.lastMessageAt = sentAt;
+  lead.lastTemplate = messageMeta.templateName || null;
+  lead.lastMessageId = messageMeta.messageId || null;
+  lead.updatedAt = sentAt;
+  saveDatabase();
+}
+function processLeadTimers() {
+  const t = Date.now();
+  for (const lead of db.leads) {
+    if (lead.optOut || lead.stage === STAGES.JUNK || lead.stage === STAGES.PHOTO_RECEIVED || lead.stage === STAGES.WAITING_RESPONSE) continue;
+    if (lead.contactedAt && !lead.followup1SentAt && lead.followup1DueAt && new Date(lead.followup1DueAt).getTime() <= t && lead.stage === STAGES.CONTACTED) {
+      setLeadStage(lead, STAGES.PENDING_FOLLOWUP, "followup_1_due");
     }
-  );
+    if (lead.followup1SentAt && !lead.followup2SentAt && lead.followup2DueAt && new Date(lead.followup2DueAt).getTime() <= t && lead.stage === STAGES.FOLLOWUP_DONE) {
+      setLeadStage(lead, STAGES.PENDING_FOLLOWUP, "followup_2_due");
+    }
+    if (lead.followup2SentAt && !lead.finalReminderSentAt && lead.finalReminderDueAt && new Date(lead.finalReminderDueAt).getTime() <= t && lead.stage === STAGES.FOLLOWUP_DONE) {
+      setLeadStage(lead, STAGES.FINAL_REMINDER, "final_reminder_due");
+    }
+  }
+}
+setInterval(processLeadTimers, 30000);
+processLeadTimers();
 
-  const countries = getCountries()
-    .map(country => ({
-      iso: country,
-      name:
-        displayNames.of(country) ||
-        country,
-      callingCode:
-        getCountryCallingCode(country)
-    }))
-    .filter(c => c.callingCode)
-    .sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
-
-  res.json({
-    data: countries
-  });
-});
-
-/*
-|--------------------------------------------------------------------------
-| WhatsApp send helpers
-|--------------------------------------------------------------------------
-*/
-
-async function sendTextMessage(to, body) {
+function storeOutboundMessage({ to, messageId, type, text = "", templateName = null, templateLanguage = null, templateComponents = [], metaResponse = null, leadId = null, action = null }) {
+  const phone = cleanPhone(to);
+  upsertContact({ phone, wa_id: phone });
+  const conversation = getConversation(phone);
+  const message = {
+    id: makeId("msg"),
+    wamid: messageId,
+    wa_id: phone,
+    direction: "outbound",
+    type,
+    text,
+    templateName,
+    templateLanguage,
+    templateComponents,
+    status: "accepted",
+    timestamp: now(),
+    metaResponse,
+    leadId: leadId || null,
+    action: action || null
+  };
+  db.messages.push(message);
+  conversation.lastMessage = text || `Template: ${templateName || ""}`;
+  conversation.lastMessageAt = message.timestamp;
+  conversation.lastDirection = "outbound";
+  saveDatabase();
+  return message;
+}
+async function sendTextMessage(to, body, meta = {}) {
   const recipient = cleanPhone(to);
-
-  if (!recipient) {
-    throw new Error("Invalid recipient number.");
-  }
-
-  if (!body || !String(body).trim()) {
-    throw new Error("Message text is required.");
-  }
-
+  if (!recipient) throw new Error("Invalid recipient number.");
+  if (!body || !String(body).trim()) throw new Error("Message text is required.");
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: recipient,
     type: "text",
-    text: {
-      preview_url: false,
-      body: String(body)
-    }
+    text: { preview_url: false, body: String(body) }
   };
-
-  const result = await metaRequest(
-    `/${PHONE_NUMBER_ID}/messages`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
-  );
-
-  const messageId =
-    result?.messages?.[0]?.id || null;
-
-  storeOutboundMessage({
-    to: recipient,
-    messageId,
-    type: "text",
-    text: body,
-    metaResponse: result
-  });
-
+  const result = await metaRequest(`/${PHONE_NUMBER_ID}/messages`, { method: "POST", body: JSON.stringify(payload) });
+  const messageId = result?.messages?.[0]?.id || null;
+  storeOutboundMessage({ to: recipient, messageId, type: "text", text: body, metaResponse: result, leadId: meta.leadId, action: meta.action });
   return result;
 }
-
-async function sendTemplateMessage({
-  to,
-  name,
-  language,
-  components = []
-}) {
-  const recipient = cleanPhone(to);
-
-  if (!recipient) {
-    throw new Error("Invalid recipient number.");
-  }
-
-  if (!name) {
-    throw new Error("Template name is required.");
-  }
-
-  if (!language) {
-    throw new Error("Template language is required.");
-  }
-
-  const template = {
-    name,
-    language: {
-      code: language
+function getTemplateConfigKey(template) {
+  return `${template?.name || ""}::${template?.language || ""}`;
+}
+function templateByKey(name, language) {
+  return db.templates.find(t => t.name === name && t.language === language);
+}
+function getTemplateConfig(template) {
+  return db.templateConfigs[getTemplateConfigKey(template)] || {};
+}
+function templateHasImageHeader(template) {
+  return !!(template?.components || []).find(c => String(c.type).toUpperCase() === "HEADER" && String(c.format || "").toUpperCase() === "IMAGE");
+}
+function extractTemplateVariables(template) {
+  const out = [];
+  (template?.components || []).forEach(component => {
+    const type = String(component.type || "").toUpperCase();
+    if (type === "BODY" || type === "HEADER") {
+      const text = component.text || "";
+      const matches = text.match(/\{\{\d+\}\}/g) || [];
+      matches.forEach((placeholder, i) => out.push({ key: placeholder, component: type, index: i }));
     }
+  });
+  return out;
+}
+function extractTemplateButtons(template) {
+  const out = [];
+  (template?.components || []).forEach((component, componentIndex) => {
+    if (String(component.type || "").toUpperCase() !== "BUTTONS") return;
+    (component.buttons || []).forEach((button, index) => {
+      out.push({
+        index: String(index),
+        type: String(button.type || "").toUpperCase(),
+        text: button.text || "",
+        url: button.url || "",
+        example: button.example || null,
+        componentIndex
+      });
+    });
+  });
+  return out;
+}
+
+function normalizeLanguageName(value){
+  const x=String(value||"").toLowerCase();
+  const map={
+    english:["english","en","en_us","en_gb"],italiano:["italian","italiano","it","it_it"],
+    "français":["french","français","francais","fr","fr_fr"],español:["spanish","español","es","es_es"],
+    română:["romanian","română","ro","ro_ro"],deutsch:["german","deutsch","de","de_de"],
+    русский:["russian","русский","ru","ru_ru"],türkçe:["turkish","türkçe","tr","tr_tr"],
+    polski:["polish","polski","pl","pl_pl"],português:["portuguese","português","pt","pt_pt","pt_br"],
+    ελληνικά:["greek","ελληνικά","el","el_gr"],bosnian:["bosnian","bs","bs_ba"],bulgarian:["bulgarian","bg","bg_bg"]
   };
-
-  if (
-    Array.isArray(components) &&
-    components.length
-  ) {
-    template.components = components;
+  for(const [canonical,values] of Object.entries(map)) if(values.includes(x)) return canonical;
+  return x;
+}
+function chooseTemplateForLead(templateName, language){
+  const candidates=db.templates.filter(t=>t.name===templateName&&String(t.status).toUpperCase()==="APPROVED");
+  if(!candidates.length)return null;
+  const wanted=normalizeLanguageName(language);
+  return candidates.find(t=>normalizeLanguageName(t.language)===wanted)||candidates.find(t=>String(t.language||"").toLowerCase().startsWith(String(language||"").toLowerCase()))||candidates[0];
+}
+function buildTemplateComponents(template, input = {}) {
+  const variables = Array.isArray(input.variables) ? input.variables : [];
+  let variableIndex = 0;
+  const components = [];
+  const header = (template?.components || []).find(c => String(c.type).toUpperCase() === "HEADER");
+  const body = (template?.components || []).find(c => String(c.type).toUpperCase() === "BODY");
+  const buttons = (template?.components || []).find(c => String(c.type).toUpperCase() === "BUTTONS");
+  if (header) {
+    const format = String(header.format || "").toUpperCase();
+    const matches = String(header.text || "").match(/\{\{\d+\}\}/g) || [];
+    if (format === "IMAGE") {
+      const mediaUrl = input.mediaUrl || getTemplateConfig(template).mediaUrl;
+      if (!mediaUrl) throw new Error(`Template "${template.name}" requires a fixed image URL. Configure it in Templates.`);
+      components.push({ type: "header", parameters: [{ type: "image", image: { link: mediaUrl } }] });
+    } else if (matches.length) {
+      components.push({
+        type: "header",
+        parameters: matches.map(() => ({ type: "text", text: String(variables[variableIndex++] ?? "") }))
+      });
+    }
   }
-
+  if (body) {
+    const matches = String(body.text || "").match(/\{\{\d+\}\}/g) || [];
+    if (matches.length) {
+      const params = matches.map(() => ({ type: "text", text: String(variables[variableIndex++] ?? "") }));
+      if (params.some(p => !p.text.trim())) throw new Error("Please fill all required template variables.");
+      components.push({ type: "body", parameters: params });
+    }
+  }
+  if (buttons?.buttons?.length) {
+    buttons.buttons.forEach((button, index) => {
+      const type = String(button.type || "").toUpperCase();
+      if (type === "QUICK_REPLY") {
+        const payload = input.buttonPayloads?.[String(index)] ?? button.text ?? "";
+        components.push({
+          type: "button",
+          sub_type: "quick_reply",
+          index: String(index),
+          parameters: [{ type: "payload", payload: String(payload) }]
+        });
+      } else if (type === "URL" && Array.isArray(input.buttonParameters?.[String(index)])) {
+        components.push({
+          type: "button",
+          sub_type: "url",
+          index: String(index),
+          parameters: input.buttonParameters[String(index)].map(v => ({ type: "text", text: String(v) }))
+        });
+      }
+    });
+  }
+  return components;
+}
+async function sendTemplateMessage({ to, name, language, components = [], leadId = null, action = null }) {
+  const recipient = cleanPhone(to);
+  if (!recipient) throw new Error("Invalid recipient number.");
+  if (!name || !language) throw new Error("Template name and language are required.");
+  const template = templateByKey(name, language) || { name, language, components: [] };
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to: recipient,
     type: "template",
-    template
+    template: { name, language: { code: language }, ...(components.length ? { components } : {}) }
   };
-
-  const result = await metaRequest(
-    `/${PHONE_NUMBER_ID}/messages`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    }
-  );
-
-  const messageId =
-    result?.messages?.[0]?.id || null;
-
+  const result = await metaRequest(`/${PHONE_NUMBER_ID}/messages`, { method: "POST", body: JSON.stringify(payload) });
+  const messageId = result?.messages?.[0]?.id || null;
   storeOutboundMessage({
     to: recipient,
     messageId,
@@ -812,1372 +466,424 @@ async function sendTemplateMessage({
     templateName: name,
     templateLanguage: language,
     templateComponents: components,
-    metaResponse: result
+    metaResponse: result,
+    leadId,
+    action
   });
-
   return result;
 }
-
-function storeOutboundMessage({
-  to,
-  messageId,
-  type,
-  text,
-  templateName,
-  templateLanguage,
-  templateComponents,
-  metaResponse
-}) {
-  const phone = cleanPhone(to);
-
-  upsertContact({
-    phone,
-    wa_id: phone
+async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", buttonPayloads = {}, buttonParameters = {}, action = "initial" }) {
+  if (!template) throw new Error("Approved template is required.");
+  const components = buildTemplateComponents(template, { variables, mediaUrl, buttonPayloads, buttonParameters });
+  const result = await sendTemplateMessage({
+    to: lead.phone,
+    name: template.name,
+    language: template.language,
+    components,
+    leadId: lead.id,
+    action
   });
-
-  const conversation =
-    getConversation(phone);
-
-  const message = {
-    id: makeId("msg"),
-    wamid: messageId,
-    wa_id: phone,
-    direction: "outbound",
-    type,
-    text: text || "",
-    templateName: templateName || null,
-    templateLanguage:
-      templateLanguage || null,
-    templateComponents:
-      templateComponents || [],
-    status: "accepted",
-    timestamp: now(),
-    metaResponse
-  };
-
-  db.messages.push(message);
-
-  conversation.lastMessage =
-    text ||
-    `Template: ${templateName || ""}`;
-
-  conversation.lastMessageAt =
-    message.timestamp;
-
-  conversation.lastDirection =
-    "outbound";
-
-  saveDatabase();
-
-  return message;
+  const messageId = result?.messages?.[0]?.id || null;
+  const sentAt = now();
+  if (action === "initial") markContacted(lead, { messageId, templateName: template.name, sentAt }, true);
+  else if (action === "followup1") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
+  else if (action === "followup2") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
+  else if (action === "final") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
+  return { result, messageId, sentAt, components };
 }
 
-/*
-|--------------------------------------------------------------------------
-| Backwards-compatible /send endpoint
-|--------------------------------------------------------------------------
-*/
+/* Health/config */
+app.get("/api/health", (req,res) => res.json({ ok:true, service:"Royal Hair Istanbul WhatsApp Dashboard", timestamp:now(), whatsappConfigured:Boolean(WHATSAPP_TOKEN&&PHONE_NUMBER_ID&&WABA_ID), bitrixConfigured:Boolean(BITRIX_WEBHOOK_URL) }));
+app.get("/api/config", (req,res) => res.json({
+  configured:Boolean(WHATSAPP_TOKEN&&PHONE_NUMBER_ID&&WABA_ID),
+  phoneNumberId:PHONE_NUMBER_ID||"",
+  wabaId:WABA_ID||"",
+  graphApiVersion:GRAPH_API_VERSION,
+  connectedNumber:process.env.CONNECTED_WHATSAPP_NUMBER || ""
+}));
 
-app.post("/send", async (req, res) => {
+/* Countries */
+app.get("/api/countries",(req,res)=>{
+  const displayNames = new Intl.DisplayNames(["en"],{type:"region"});
+  const countries = getCountries().map(iso=>({iso,name:displayNames.of(iso)||iso,callingCode:getCountryCallingCode(iso)})).filter(c=>c.callingCode).sort((a,b)=>a.name.localeCompare(b.name));
+  res.json({data:countries});
+});
+
+/* Bitrix */
+app.get("/api/bitrix/test", async (req,res)=>{
   try {
-    const {
-      to,
-      message,
-      text,
-      template,
-      templateName,
-      language,
-      components
-    } = req.body || {};
-
-    if (template || templateName) {
-      const result =
-        await sendTemplateMessage({
-          to,
-          name:
-            templateName ||
-            template?.name,
-          language:
-            language ||
-            template?.language?.code ||
-            "en_US",
-          components:
-            components ||
-            template?.components ||
-            []
-        });
-
-      return res.json(result);
-    }
-
-    const result =
-      await sendTextMessage(
-        to,
-        message || text ||
-        "Hello from Royal Hair Istanbul."
-      );
-
-    return res.json(result);
-  } catch (error) {
-    console.error(
-      "Send message error:",
-      error
-    );
-
-    res.status(
-      error.status || 500
-    ).json({
-      error:
-        error.message ||
-        "Unable to send message",
-      meta:
-        error.meta || null
-    });
-  }
+    if(!BITRIX_WEBHOOK_URL) return res.status(500).json({ok:false,error:"BITRIX_WEBHOOK_URL is not configured"});
+    const base = BITRIX_WEBHOOK_URL.endsWith("/") ? BITRIX_WEBHOOK_URL : `${BITRIX_WEBHOOK_URL}/`;
+    const r = await fetch(`${base}profile.json`); const data=await r.json();
+    if(!r.ok || data.error) throw new Error(data.error_description||data.error||"Bitrix API failed");
+    res.json({ok:true,user:data.result||null});
+  } catch(e){res.status(500).json({ok:false,error:e.message});}
 });
-
-/*
-|--------------------------------------------------------------------------
-| Single message API
-|--------------------------------------------------------------------------
-*/
-
-app.post("/api/messages/send", async (req, res) => {
+app.get("/api/bitrix/lead-fields", async (req,res)=>{
   try {
-    const {
-      to,
-      type,
-      text,
-      template
-    } = req.body || {};
-
-    let result;
-
-    if (type === "template") {
-      result =
-        await sendTemplateMessage({
-          to,
-          name: template?.name,
-          language:
-            template?.language,
-          components:
-            template?.components || []
-        });
-    } else {
-      result =
-        await sendTextMessage(
-          to,
-          text
-        );
-    }
-
-    addEvent(
-      "message_sent",
-      {
-        to: cleanPhone(to),
-        type
-      }
-    );
-
-    res.json({
-      success: true,
-      result
-    });
-  } catch (error) {
-    res.status(
-      error.status || 500
-    ).json({
-      success: false,
-      error: error.message,
-      meta: error.meta || null
-    });
-  }
+    if(!BITRIX_WEBHOOK_URL) throw new Error("BITRIX_WEBHOOK_URL is not configured");
+    const r=await fetch(`${BITRIX_WEBHOOK_URL}crm.item.fields.json?entityTypeId=1`); const data=await r.json();
+    if(!r.ok||data.error) throw new Error(data.error_description||data.error||"Bitrix API error");
+    const fields=data.result?.fields||{};
+    const languageField=Object.entries(fields).find(([code,field])=>String(field.title||"").toLowerCase()==="language");
+    res.json({ok:true,languageField:languageField?{code:languageField[0],details:languageField[1]}:null,fields});
+  } catch(e){res.status(500).json({ok:false,error:e.message});}
 });
-
-/*
-|--------------------------------------------------------------------------
-| Templates - Sync from Meta
-|--------------------------------------------------------------------------
-*/
-
-async function fetchAllTemplates() {
-  if (!WABA_ID) {
-    throw new Error(
-      "WABA_ID is not configured."
-    );
-  }
-
-  let url =
-    `/${WABA_ID}/message_templates` +
-    `?fields=id,name,status,category,language,components,quality_score` +
-    `&limit=100`;
-
-  const all = [];
-
-  let pages = 0;
-
-  while (url && pages < 20) {
-    const data =
-      await metaRequest(url);
-
-    if (Array.isArray(data.data)) {
-      all.push(...data.data);
-    }
-
-    url =
-      data?.paging?.next
-        ? data.paging.next.replace(
-            GRAPH_URL,
-            ""
-          )
-        : null;
-
-    pages++;
-  }
-
-  db.templates = all;
-  saveDatabase();
-
-  addEvent(
-    "templates_synced",
-    {
-      count: all.length
-    }
-  );
-
-  return all;
-}
-
-app.get("/api/templates", async (req, res) => {
+app.get("/api/bitrix/leads", async (req,res)=>{
   try {
-    const templates =
-      await fetchAllTemplates();
-
-    res.json({
-      success: true,
-      data: templates
-    });
-  } catch (error) {
-    res.status(
-      error.status || 500
-    ).json({
-      success: false,
-      error: error.message,
-      meta: error.meta || null,
-      cached: db.templates
-    });
-  }
-});
-
-app.post(
-  "/api/templates/sync",
-  async (req, res) => {
-    try {
-      const templates =
-        await fetchAllTemplates();
-
-      res.json({
-        success: true,
-        count: templates.length,
-        data: templates
-      });
-    } catch (error) {
-      res.status(
-        error.status || 500
-      ).json({
-        success: false,
-        error: error.message,
-        meta: error.meta || null
-      });
-    }
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Contacts
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/contacts", (req, res) => {
-  res.json({
-    data: db.contacts
-  });
-});
-
-app.post(
-  "/api/contacts/import",
-  (req, res) => {
-    try {
-      const contacts =
-        Array.isArray(req.body?.contacts)
-          ? req.body.contacts
-          : [];
-
-      let imported = 0;
-      let updated = 0;
-
-      contacts.forEach(item => {
-        const phone =
-          cleanPhone(
-            item.phone ||
-            item.number ||
-            item.wa_id
-          );
-
-        if (!phone) return;
-
-        const existing =
-          getContact(phone);
-
-        const contact =
-          upsertContact({
-            ...item,
-            phone,
-            wa_id: phone
-          });
-
-        if (existing) {
-          updated++;
-        } else if (contact) {
-          imported++;
-        }
-
-        if (
-          item.listId &&
-          contact
-        ) {
-          addContactToList(
-            contact.id,
-            item.listId
-          );
-        }
-      });
-
-      saveDatabase();
-
-      res.json({
-        success: true,
-        imported,
-        updated,
-        total: imported + updated
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Lists
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/lists", (req, res) => {
-  const lists =
-    db.lists.map(list => ({
-      ...list,
-      contactCount:
-        list.contactIds.length
-    }));
-
-  res.json({
-    data: lists
-  });
-});
-
-app.post("/api/lists", (req, res) => {
-  const name =
-    String(
-      req.body?.name || ""
-    ).trim();
-
-  if (!name) {
-    return res.status(400).json({
-      error: "List name is required."
-    });
-  }
-
-  const list = {
-    id: makeId("list"),
-    name,
-    contactIds: [],
-    createdAt: now()
-  };
-
-  db.lists.push(list);
-
-  saveDatabase();
-
-  res.json({
-    success: true,
-    data: list
-  });
-});
-
-function addContactToList(
-  contactId,
-  listId
-) {
-  const list =
-    db.lists.find(
-      l => l.id === listId
-    );
-
-  const contact =
-    db.contacts.find(
-      c => c.id === contactId
-    );
-
-  if (!list || !contact) {
-    return false;
-  }
-
-  if (
-    !list.contactIds.includes(
-      contactId
-    )
-  ) {
-    list.contactIds.push(
-      contactId
-    );
-  }
-
-  if (
-    !contact.lists.includes(
-      listId
-    )
-  ) {
-    contact.lists.push(
-      listId
-    );
-  }
-
-  return true;
-}
-
-app.post(
-  "/api/lists/:listId/contacts",
-  (req, res) => {
-    const listId =
-      req.params.listId;
-
-    const contactIds =
-      Array.isArray(
-        req.body?.contactIds
-      )
-        ? req.body.contactIds
-        : [];
-
-    let added = 0;
-
-    contactIds.forEach(
-      contactId => {
-        if (
-          addContactToList(
-            contactId,
-            listId
-          )
-        ) {
-          added++;
-        }
-      }
-    );
-
-    saveDatabase();
-
-    res.json({
-      success: true,
-      added
-    });
-  }
-);
-
-app.delete(
-  "/api/lists/:listId/contacts/:contactId",
-  (req, res) => {
-    const list =
-      db.lists.find(
-        l =>
-          l.id ===
-          req.params.listId
-      );
-
-    const contact =
-      db.contacts.find(
-        c =>
-          c.id ===
-          req.params.contactId
-      );
-
-    if (!list || !contact) {
-      return res.status(404).json({
-        error: "Contact or list not found."
-      });
-    }
-
-    list.contactIds =
-      list.contactIds.filter(
-        id =>
-          id !==
-          contact.id
-      );
-
-    contact.lists =
-      contact.lists.filter(
-        id =>
-          id !==
-          list.id
-      );
-
-    saveDatabase();
-
-    res.json({
-      success: true
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Campaigns
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/campaigns", (req, res) => {
-  res.json({
-    data: db.campaigns
-  });
-});
-
-function sleep(ms) {
-  return new Promise(
-    resolve =>
-      setTimeout(resolve, ms)
-  );
-}
-
-app.post(
-  "/api/campaigns",
-  async (req, res) => {
-    try {
-      const {
-        name,
-        listId,
-        contactIds,
-        template,
-        delayMs
-      } = req.body || {};
-
-      if (!template?.name) {
-        return res.status(400).json({
-          error:
-            "An approved Meta template is required."
-        });
-      }
-
-      let recipients = [];
-
-      if (listId) {
-        const list =
-          db.lists.find(
-            l =>
-              l.id === listId
-          );
-
-        if (!list) {
-          return res.status(404).json({
-            error:
-              "Contact list not found."
-          });
-        }
-
-        recipients =
-          db.contacts.filter(
-            c =>
-              list.contactIds.includes(
-                c.id
-              )
-          );
-      } else if (
-        Array.isArray(contactIds)
-      ) {
-        recipients =
-          db.contacts.filter(
-            c =>
-              contactIds.includes(
-                c.id
-              )
-          );
-      }
-
-      if (!recipients.length) {
-        return res.status(400).json({
-          error:
-            "No contacts selected."
-        });
-      }
-
-      const campaign = {
-        id: makeId("campaign"),
-        name:
-          name ||
-          `Campaign ${new Date().toLocaleString()}`,
-        listId:
-          listId || null,
-        template,
-        status: "running",
-        createdAt: now(),
-        total: recipients.length,
-        sent: 0,
-        failed: 0,
-        delivered: 0,
-        read: 0,
-        results: []
-      };
-
-      db.campaigns.unshift(
-        campaign
-      );
-
-      saveDatabase();
-
-      res.json({
-        success: true,
-        campaignId:
-          campaign.id,
-        total:
-          recipients.length
-      });
-
-      /*
-       * Run after HTTP response.
-       */
-      (async () => {
-        for (
-          const contact of recipients
-        ) {
-          try {
-            const variables =
-              Array.isArray(
-                contact.variables
-              )
-                ? contact.variables
-                : [];
-
-            const components =
-              buildTemplateComponents(
-                template.components || [],
-                variables
-              );
-
-            const result =
-              await sendTemplateMessage({
-                to:
-                  contact.wa_id ||
-                  contact.phone,
-                name:
-                  template.name,
-                language:
-                  template.language,
-                components
-              });
-
-            campaign.sent++;
-
-            campaign.results.push({
-              contactId:
-                contact.id,
-              phone:
-                contact.wa_id ||
-                contact.phone,
-              status:
-                "accepted",
-              messageId:
-                result?.messages?.[0]?.id ||
-                null,
-              timestamp: now()
-            });
-          } catch (error) {
-            campaign.failed++;
-
-            campaign.results.push({
-              contactId:
-                contact.id,
-              phone:
-                contact.wa_id ||
-                contact.phone,
-              status:
-                "failed",
-              error:
-                error.message,
-              timestamp: now()
-            });
-          }
-
-          saveDatabase();
-
-          await sleep(
-            Math.max(
-              300,
-              Number(delayMs) || 700
-            )
-          );
-        }
-
-        campaign.status =
-          "completed";
-
-        campaign.completedAt =
-          now();
-
-        saveDatabase();
-
-        addEvent(
-          "campaign_completed",
-          {
-            campaignId:
-              campaign.id
-          }
-        );
-      })();
-    } catch (error) {
-      console.error(
-        "Campaign error:",
-        error
-      );
-
-      if (!res.headersSent) {
-        res.status(500).json({
-          success: false,
-          error:
-            error.message
-        });
-      }
-    }
-  }
-);
-
-function buildTemplateComponents(
-  templateComponents,
-  variables
-) {
-  if (
-    !Array.isArray(
-      templateComponents
-    )
-  ) {
-    return [];
-  }
-
-  let variableIndex = 0;
-
-  return templateComponents
-    .map(component => {
-      const componentText =
-        component.text || "";
-
-      const matches =
-        componentText.match(
-          /\{\{\d+\}\}/g
-        ) || [];
-
-      if (
-        component.type !== "BODY" &&
-        component.type !== "HEADER"
-      ) {
-        return null;
-      }
-
-      if (!matches.length) {
-        return null;
-      }
-
-      const parameters =
-        matches.map(() => ({
-          type: "text",
-          text:
-            String(
-              variables[
-                variableIndex++
-              ] ?? ""
-            )
-        }));
-
-      return {
-        type:
-          String(
-            component.type
-          ).toLowerCase(),
-        parameters
-      };
-    })
-    .filter(Boolean);
-}
-
-/*
-|--------------------------------------------------------------------------
-| Inbox
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/inbox", (req, res) => {
-  const conversations =
-    Object.values(
-      db.conversations
-    )
-      .map(conversation => {
-        const contact =
-          getContact(
-            conversation.wa_id
-          );
-
-        return {
-          ...conversation,
-          contact
-        };
+    if(!BITRIX_WEBHOOK_URL) return res.status(500).json({ok:false,error:"BITRIX_WEBHOOK_URL is not configured"});
+    const filters={stageId:"NEW"};
+    if(req.query.dateFrom) filters[">=dateCreate"]=`${req.query.dateFrom}T00:00:00`;
+    if(req.query.dateTo) filters["<=dateCreate"]=`${req.query.dateTo}T23:59:59`;
+    if(req.query.language) filters["ufCrm_1690811363903"]=req.query.language;
+    const r=await fetch(`${BITRIX_WEBHOOK_URL}crm.item.list.json`,{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        entityTypeId:1,
+        select:["id","title","phone","PHONE","ufCrm_1690811363903","dateCreate","dateModify","stageId"],
+        filter:filters,order:{id:"DESC"},start:0
       })
-      .sort(
-        (a, b) =>
-          new Date(
-            b.lastMessageAt || 0
-          ) -
-          new Date(
-            a.lastMessageAt || 0
-          )
-      );
-
-  res.json({
-    data: conversations
-  });
+    });
+    const data=await r.json();
+    if(!r.ok||data.error) throw new Error(data.error_description||data.error||"Bitrix API error");
+    const items=data.result?.items||[];
+    res.json({ok:true,data:items});
+  } catch(e){res.status(500).json({ok:false,error:e.message});}
+});
+app.get("/api/bitrix/lead/:id", async (req,res)=>{
+  try {
+    if(!BITRIX_WEBHOOK_URL) throw new Error("BITRIX_WEBHOOK_URL is not configured");
+    const id=Number(req.params.id); if(!id) return res.status(400).json({ok:false,error:"Invalid lead ID"});
+    const r=await fetch(`${BITRIX_WEBHOOK_URL}crm.item.get.json`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entityTypeId:1,id})});
+    const data=await r.json();
+    if(!r.ok||data.error) throw new Error(data.error_description||data.error||"Bitrix API error");
+    const lead=data.result?.item; if(!lead) return res.status(404).json({ok:false,error:"Lead not found"});
+    const pf=lead.PHONE||lead.phone||[];
+    const phone=Array.isArray(pf)?(pf.find(p=>p.VALUE)?.VALUE||pf.find(p=>p.value)?.value||null):(pf||null);
+    res.json({ok:true,lead:{id:lead.id,title:lead.title,phone,languageValue:lead.ufCrm_1690811363903||"",stageId:lead.stageId||""}});
+  } catch(e){res.status(500).json({ok:false,error:e.message});}
+});
+app.post("/api/bitrix/send-template", async (req,res)=>{
+  try {
+    const {leadId,templateName,languageCode,components=[],action="initial"}=req.body||{};
+    if(!leadId||!templateName||!languageCode) return res.status(400).json({ok:false,error:"leadId, templateName and languageCode are required"});
+    const leadResponse=await fetch(`${BITRIX_WEBHOOK_URL}crm.item.get.json`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({entityTypeId:1,id:Number(leadId)})});
+    const leadData=await leadResponse.json(); if(!leadResponse.ok||leadData.error) throw new Error(leadData.error_description||leadData.error||"Could not retrieve Bitrix lead");
+    const b=leadData.result?.item; if(!b) return res.status(404).json({ok:false,error:"Bitrix lead not found"});
+    const pf=b.PHONE||b.phone||[]; const phone=Array.isArray(pf)?(pf.find(p=>p.VALUE)?.VALUE||pf.find(p=>p.value)?.value||null):(pf||null);
+    if(!phone) return res.status(400).json({ok:false,error:"No phone number found on this Bitrix lead"});
+    const language = languageCode;
+    const tpl = templateByKey(templateName,language);
+    const lead=createOrUpdateLead({bitrixId:Number(leadId),phone,name:b.title||`Lead #${leadId}`,language,source:"Meta Ads",createdAt:b.dateCreate||now()});
+    const result=await sendTemplateMessage({to:phone,name:templateName,language,components,leadId:lead.id,action});
+    const sentAt=now(); markContacted(lead,{messageId:result?.messages?.[0]?.id||null,templateName,sentAt},action==="initial");
+    res.json({ok:true,leadId:Number(leadId),phone,contactedAt:lead.contactedAt,stage:lead.stage,followup1DueAt:lead.followup1DueAt,followup2DueAt:lead.followup2DueAt,finalReminderDueAt:lead.finalReminderDueAt,whatsapp:result,template:tpl||null});
+  } catch(e){res.status(e.status||500).json({ok:false,error:e.message,meta:e.meta||null});}
 });
 
-app.get(
-  "/api/inbox/:waId/messages",
-  (req, res) => {
-    const phone =
-      cleanPhone(
-        req.params.waId
-      );
+/* Templates */
+async function fetchAllTemplates(){
+  if(!WABA_ID) throw new Error("WABA_ID is not configured.");
+  let url=`/${WABA_ID}/message_templates?fields=id,name,status,category,language,components,quality_score&limit=100`;
+  const all=[]; let pages=0;
+  while(url&&pages<20){const data=await metaRequest(url); if(Array.isArray(data.data)) all.push(...data.data); url=data?.paging?.next?data.paging.next.replace(GRAPH_URL,""):null; pages++;}
+  db.templates=all; saveDatabase(); addEvent("templates_synced",{count:all.length}); return all;
+}
+app.get("/api/templates",async(req,res)=>{try{const data=await fetchAllTemplates();res.json({success:true,data});}catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null,cached:db.templates});}});
+app.post("/api/templates/sync",async(req,res)=>{try{const data=await fetchAllTemplates();res.json({success:true,count:data.length,data});}catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}});
+app.get("/api/templates/config",(req,res)=>res.json({data:db.templateConfigs}));
+app.post("/api/templates/config",(req,res)=>{
+  const {name,language,mediaUrl}=req.body||{};
+  if(!name||!language) return res.status(400).json({error:"Template name and language are required."});
+  const key=`${name}::${language}`;
+  db.templateConfigs[key]={mediaUrl:String(mediaUrl||"").trim(),updatedAt:now()};
+  saveDatabase(); res.json({success:true,data:db.templateConfigs[key]});
+});
+app.get("/api/templates/:name/:language/meta",(req,res)=>{
+  const t=templateByKey(req.params.name,req.params.language);
+  if(!t) return res.status(404).json({error:"Template not found"});
+  res.json({data:{...t,config:getTemplateConfig(t),variables:extractTemplateVariables(t),buttons:extractTemplateButtons(t)}});
+});
 
-    const messages =
-      db.messages.filter(
-        m =>
-          cleanPhone(
-            m.wa_id
-          ) === phone
-      );
-
-    res.json({
-      data: messages
+/* Contacts / labels */
+app.get("/api/contacts",(req,res)=>res.json({data:db.contacts}));
+app.post("/api/contacts/import",(req,res)=>{
+  try{
+    const contacts=Array.isArray(req.body?.contacts)?req.body.contacts:[]; const label=String(req.body?.label||"").trim();
+    let imported=0,updated=0;
+    contacts.forEach(item=>{
+      const phone=cleanPhone(item.phone||item.number||item.wa_id); if(!phone)return;
+      const existing=getContact(phone);
+      const contact=upsertContact({...item,phone,wa_id:phone,labels:label?[label]:[]});
+      if(existing)updated++; else if(contact)imported++;
+      if(label&&contact&&!contact.labels.includes(label))contact.labels.push(label);
     });
-  }
-);
+    saveDatabase(); res.json({success:true,imported,updated,total:imported+updated,label});
+  }catch(e){res.status(500).json({success:false,error:e.message});}
+});
+app.get("/api/contacts/labels",(req,res)=>{
+  const counts={};
+  db.contacts.forEach(c=>(c.labels||[]).forEach(l=>counts[l]=(counts[l]||0)+1));
+  res.json({data:Object.entries(counts).map(([name,count])=>({name,count}))});
+});
 
-app.post(
-  "/api/inbox/:waId/send",
-  async (req, res) => {
-    try {
-      const phone =
-        cleanPhone(
-          req.params.waId
-        );
+/* Generic lists */
+app.get("/api/lists",(req,res)=>res.json({data:db.lists.map(l=>({...l,contactCount:l.contactIds.length}))}));
+app.post("/api/lists",(req,res)=>{
+  const name=String(req.body?.name||"").trim(); if(!name)return res.status(400).json({error:"List name is required."});
+  const list={id:makeId("list"),name,contactIds:[],createdAt:now()};db.lists.push(list);saveDatabase();res.json({success:true,data:list});
+});
+app.post("/api/lists/:listId/contacts",(req,res)=>{
+  const list=db.lists.find(l=>l.id===req.params.listId);const ids=Array.isArray(req.body?.contactIds)?req.body.contactIds:[];
+  if(!list)return res.status(404).json({error:"List not found"});let added=0;
+  ids.forEach(id=>{const c=db.contacts.find(x=>x.id===id);if(c&&!list.contactIds.includes(id)){list.contactIds.push(id);c.lists=c.lists||[];if(!c.lists.includes(list.id))c.lists.push(list.id);added++;}});
+  saveDatabase();res.json({success:true,added});
+});
 
-      const {
-        type,
-        text,
-        template
-      } = req.body || {};
+/* Leads */
+app.get("/api/leads",(req,res)=>{
+  processLeadTimers();
+  let leads=[...db.leads];
+  if(req.query.stage) leads=leads.filter(l=>l.stage===req.query.stage);
+  if(req.query.language) leads=leads.filter(l=>String(l.language||"").toLowerCase()===String(req.query.language).toLowerCase());
+  if(req.query.q){const q=String(req.query.q).toLowerCase();leads=leads.filter(l=>[l.name,l.phone,l.language,l.bitrixId].some(v=>String(v||"").toLowerCase().includes(q)));}
+  if(req.query.from) leads=leads.filter(l=>new Date(l.createdAt)>=new Date(`${req.query.from}T00:00:00`));
+  if(req.query.to) leads=leads.filter(l=>new Date(l.createdAt)<=new Date(`${req.query.to}T23:59:59`));
+  leads.sort((a,b)=>new Date(b.updatedAt||b.createdAt)-new Date(a.updatedAt||a.createdAt));
+  res.json({data:leads,stageMeta:STAGE_META,stages:Object.values(STAGES)});
+});
+app.get("/api/leads/stats",(req,res)=>{
+  processLeadTimers();
+  const total=db.leads.filter(l=>l.stage&&l.stage!==STAGES.JUNK).length;
+  const stats={};Object.values(STAGES).forEach(s=>stats[s]=db.leads.filter(l=>l.stage===s).length);
+  const contacted=db.leads.filter(l=>l.contactedAt).length;
+  res.json({total,contacted,stats,percentages:Object.fromEntries(Object.entries(stats).map(([k,v])=>[k,contacted?Number((v/contacted*100).toFixed(1)):0]))});
+});
+app.get("/api/leads/:id",(req,res)=>{const lead=db.leads.find(l=>l.id===req.params.id);if(!lead)return res.status(404).json({error:"Lead not found"});res.json({data:lead});});
+app.post("/api/leads/upsert",(req,res)=>{const lead=createOrUpdateLead(req.body||{});if(!lead)return res.status(400).json({error:"Phone is required"});res.json({success:true,data:lead});});
+app.post("/api/leads/:id/stage",(req,res)=>{
+  const lead=db.leads.find(l=>l.id===req.params.id);const stage=req.body?.stage;
+  if(!lead||!Object.values(STAGES).includes(stage))return res.status(400).json({error:"Invalid lead or stage"});
+  if(stage===STAGES.JUNK)lead.optOut=true;
+  setLeadStage(lead,stage,"manual");
+  res.json({success:true,data:lead});
+});
+app.post("/api/leads/bulk-stage",(req,res)=>{
+  const ids=Array.isArray(req.body?.leadIds)?req.body.leadIds:[];const stage=req.body?.stage;
+  if(!Object.values(STAGES).includes(stage))return res.status(400).json({error:"Invalid stage"});
+  let changed=0;ids.forEach(id=>{const lead=db.leads.find(l=>l.id===id);if(lead){if(stage===STAGES.JUNK)lead.optOut=true;setLeadStage(lead,stage,"bulk_manual");changed++;}});
+  res.json({success:true,changed});
+});
+app.delete("/api/leads/:id",(req,res)=>{const idx=db.leads.findIndex(l=>l.id===req.params.id);if(idx<0)return res.status(404).json({error:"Lead not found"});db.leads.splice(idx,1);saveDatabase();res.json({success:true});});
+app.post("/api/leads/:id/optout",(req,res)=>{const lead=db.leads.find(l=>l.id===req.params.id);if(!lead)return res.status(404).json({error:"Lead not found"});lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"opt_out");res.json({success:true,data:lead});});
 
-      let result;
-
-      if (
-        type === "template"
-      ) {
-        result =
-          await sendTemplateMessage({
-            to: phone,
-            name:
-              template?.name,
-            language:
-              template?.language,
-            components:
-              template?.components ||
-              []
-          });
-      } else {
-        result =
-          await sendTextMessage(
-            phone,
-            text
-          );
+/* Lead message endpoint */
+app.post("/api/leads/:id/send",(req,res)=>{
+  (async()=>{
+    try{
+      const lead=db.leads.find(l=>l.id===req.params.id);if(!lead)return res.status(404).json({error:"Lead not found"});
+      if(lead.optOut||lead.stage===STAGES.JUNK)return res.status(400).json({error:"Lead is opted out/Junk and cannot be messaged automatically."});
+      const {type="template",text,templateName,language,variables=[],mediaUrl,buttonPayloads={},buttonParameters={},action="initial"}=req.body||{};
+      if(type==="text"){
+        const result=await sendTextMessage(lead.phone,text,{leadId:lead.id,action});
+        if(action==="initial") markContacted(lead,{messageId:result?.messages?.[0]?.id||null,templateName:null,sentAt:now()},true);
+        return res.json({success:true,result,lead});
       }
+      const template=templateByKey(templateName,language);if(!template)return res.status(400).json({error:"Approved template not found. Sync templates first."});
+      if(String(template.status).toUpperCase()!=="APPROVED")return res.status(400).json({error:"Template is not approved."});
+      const sent=await sendLeadMessage({lead,template,variables,mediaUrl,buttonPayloads,buttonParameters,action});
+      res.json({success:true,...sent,lead});
+    }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+  })();
+});
 
-      res.json({
-        success: true,
-        result
-      });
-    } catch (error) {
-      res.status(
-        error.status || 500
-      ).json({
-        success: false,
-        error: error.message,
-        meta: error.meta || null
-      });
+/* Generic single message API */
+app.post("/api/messages/send", async (req,res)=>{
+  try{
+    const {to,type="text",text,template}=req.body||{};
+    if(type==="text"){
+      const result=await sendTextMessage(to,text,{action:"manual"});
+      return res.json({success:true,result});
     }
-  }
-);
+    const t=templateByKey(template?.name,template?.language);
+    if(!t||String(t.status).toUpperCase()!=="APPROVED") return res.status(400).json({error:"Approved template not found."});
+    const variables=Array.isArray(template?.variables)?template.variables:[];
+    const components=buildTemplateComponents(t,{variables,mediaUrl:template?.mediaUrl,buttonPayloads:template?.buttonPayloads||{},buttonParameters:template?.buttonParameters||{}});
+    const result=await sendTemplateMessage({to,name:t.name,language:t.language,components,action:"manual"});
+    res.json({success:true,result});
+  }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+});
 
-app.post(
-  "/api/inbox/:waId/read",
-  (req, res) => {
-    const conversation =
-      db.conversations[
-        cleanPhone(
-          req.params.waId
-        )
-      ];
+/* Campaigns / broadcast */
+app.get("/api/campaigns",(req,res)=>res.json({data:db.campaigns}));
+app.post("/api/campaigns",(req,res)=>{
+  (async()=>{
+    try{
+      const {name,leadIds,contactIds,listId,label,templateName,language,variablesByLead={},delayMs=800,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
+      const template=templateByKey(templateName,language);if(!template||String(template.status).toUpperCase()!=="APPROVED")return res.status(400).json({error:"An approved Meta template is required."});
+      let recipients=[];
+      if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
+      else if(listId){const list=db.lists.find(l=>l.id===listId);if(!list)return res.status(404).json({error:"List not found"});recipients=db.contacts.filter(c=>list.contactIds.includes(c.id));}
+      else if(label){recipients=db.contacts.filter(c=>(c.labels||[]).includes(label));}
+      else if(Array.isArray(contactIds)) recipients=contactIds.map(id=>db.contacts.find(c=>c.id===id)).filter(Boolean);
+      recipients=recipients.filter(x=>{const l=leadForPhone(x.phone);return x&&!l?.optOut&&l?.stage!==STAGES.JUNK;});
+      if(!recipients.length)return res.status(400).json({error:"No eligible contacts selected."});
+      const campaign={id:makeId("campaign"),name:name||`Campaign ${new Date().toLocaleString()}`,templateName,language,action,status:"running",createdAt:now(),total:recipients.length,sent:0,failed:0,delivered:0,read:0,results:[]};
+      db.campaigns.unshift(campaign);saveDatabase();res.json({success:true,campaignId:campaign.id,total:recipients.length});
+      (async()=>{
+        for(const recipient of recipients){
+          try{
+            const lead = recipient.id && recipient.phone ? (recipient.stage !== undefined ? recipient : leadForPhone(recipient.phone)) : null;
+            const vars=Array.isArray(variablesByLead[recipient.id])?variablesByLead[recipient.id]:(Array.isArray(recipient.variables)?recipient.variables:[]);
+            const sendTemplate = ((action==="broadcast" || autoLanguage) && templateName) ? (lead ? (chooseTemplateForLead(templateName,lead.language)||template) : template) : template;
+            const sendMedia = autoLanguage ? (getTemplateConfig(sendTemplate).mediaUrl || mediaUrl || "") : (mediaUrl || getTemplateConfig(sendTemplate).mediaUrl || "");
+            const sent = lead
+              ? await sendLeadMessage({lead,template:sendTemplate,variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters,action})
+              : await (async()=>{const components=buildTemplateComponents(sendTemplate,{variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters});const result=await sendTemplateMessage({to:recipient.phone,name:sendTemplate.name,language:sendTemplate.language,components,action:"broadcast"});return {messageId:result?.messages?.[0]?.id||null,result};})();
+            campaign.sent++;campaign.results.push({contactId:recipient.id,leadId:lead?.id||null,phone:recipient.phone,status:"accepted",messageId:sent.messageId,timestamp:now()});
+          }catch(e){campaign.failed++;campaign.results.push({contactId:recipient.id,leadId:recipient?.id||null,phone:recipient.phone,status:"failed",error:e.message,timestamp:now()});}
+          saveDatabase();await new Promise(r=>setTimeout(r,Math.max(300,Number(delayMs)||800)));
+        }
+        campaign.status="completed";campaign.completedAt=now();saveDatabase();addEvent("campaign_completed",{campaignId:campaign.id});
+      })();
+    }catch(e){if(!res.headersSent)res.status(500).json({error:e.message});}
+  })();
+});
 
-    if (conversation) {
-      conversation.unread = 0;
-    }
+/* Inbox */
+app.get("/api/inbox",(req,res)=>{
+  const conversations=Object.values(db.conversations).map(c=>({...c,contact:getContact(c.wa_id),lead:leadForPhone(c.wa_id)})).sort((a,b)=>new Date(b.lastMessageAt||0)-new Date(a.lastMessageAt||0));
+  res.json({data:conversations});
+});
+app.get("/api/inbox/:waId/messages",(req,res)=>res.json({data:db.messages.filter(m=>cleanPhone(m.wa_id)===cleanPhone(req.params.waId))}));
 
-    saveDatabase();
+async function uploadWhatsAppMedia(dataUrl, mimeType, filename){
+  if(!WHATSAPP_TOKEN||!PHONE_NUMBER_ID) throw new Error("WhatsApp credentials are not configured.");
+  const match=String(dataUrl||"").match(/^data:([^;]+);base64,(.+)$/);
+  if(!match) throw new Error("Invalid media data.");
+  const buffer=Buffer.from(match[2],"base64");
+  const blob=new Blob([buffer],{type:mimeType||match[1]});
+  const form=new FormData();
+  form.append("messaging_product","whatsapp");
+  form.append("file",blob,filename||"upload");
+  const r=await fetch(`${GRAPH_URL}/${PHONE_NUMBER_ID}/media`,{method:"POST",headers:{Authorization:`Bearer ${WHATSAPP_TOKEN}`},body:form});
+  const data=await r.json();
+  if(!r.ok||data.error){const e=new Error(data?.error?.message||"Media upload failed");e.status=r.status;e.meta=data;throw e}
+  return data.id;
+}
+app.post("/api/inbox/:waId/send-media",async(req,res)=>{
+  try{
+    const phone=cleanPhone(req.params.waId);const {dataUrl,mimeType,filename,caption=""}=req.body||{};
+    if(!dataUrl)return res.status(400).json({error:"Media is required."});
+    const mediaId=await uploadWhatsAppMedia(dataUrl,mimeType,filename);
+    const type=String(mimeType||"").startsWith("image/")?"image":String(mimeType||"").startsWith("video/")?"video":String(mimeType||"").startsWith("audio/")?"audio":"document";
+    const payload={messaging_product:"whatsapp",recipient_type:"individual",to:phone,type,[type]:{id:mediaId,...(caption?{caption}:{}),...(type==="document"&&filename?{filename}: {})}};
+    const result=await metaRequest(`/${PHONE_NUMBER_ID}/messages`,{method:"POST",body:JSON.stringify(payload)});
+    const messageId=result?.messages?.[0]?.id||null;
+    storeOutboundMessage({to:phone,messageId,type, text:caption,metaResponse:result,leadId:leadForPhone(phone)?.id||null,action:"inbox_media"});
+    res.json({success:true,result,mediaId});
+  }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+});
 
-    res.json({
-      success: true
-    });
-  }
-);
+app.post("/api/inbox/:waId/send",async(req,res)=>{
+  try{
+    const phone=cleanPhone(req.params.waId);const {type="text",text,template}=req.body||{};let result;
+    if(type==="template") result=await sendTemplateMessage({to:phone,name:template?.name,language:template?.language,components:template?.components||[],leadId:leadForPhone(phone)?.id||null,action:template?.action||"manual"});
+    else result=await sendTextMessage(phone,text,{leadId:leadForPhone(phone)?.id||null,action:"manual"});
+    res.json({success:true,result});
+  }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+});
+app.post("/api/inbox/:waId/read",(req,res)=>{const c=db.conversations[cleanPhone(req.params.waId)];if(c)c.unread=0;saveDatabase();res.json({success:true});});
+app.post("/api/inbox/:waId/stage",(req,res)=>{const lead=leadForPhone(req.params.waId);if(!lead)return res.status(404).json({error:"Lead not found"});if(req.body?.stage===STAGES.JUNK)lead.optOut=true;setLeadStage(lead,req.body?.stage,"inbox");res.json({success:true,data:lead});});
 
-/*
-|--------------------------------------------------------------------------
-| Webhook verification
-|--------------------------------------------------------------------------
-*/
+/* Status/search */
+app.get("/api/messages/status",(req,res)=>{
+  let messages=[...db.messages];
+  if(req.query.phone)messages=messages.filter(m=>cleanPhone(m.wa_id)===cleanPhone(req.query.phone));
+  if(req.query.from)messages=messages.filter(m=>new Date(m.timestamp)>=new Date(`${req.query.from}T00:00:00`));
+  if(req.query.to)messages=messages.filter(m=>new Date(m.timestamp)<=new Date(`${req.query.to}T23:59:59`));
+  messages.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  res.json({data:messages.slice(0,1000)});
+});
 
-app.get("/webhook", (req, res) => {
-  const mode =
-    req.query["hub.mode"];
+/* Media proxy */
+app.get("/api/media/:mediaId",async(req,res)=>{
+  try{
+    const meta=await metaRequest(`/${encodeURIComponent(req.params.mediaId)}`);
+    if(!meta?.url) return res.status(404).send("Media URL not available");
+    const r=await fetch(meta.url,{headers:{Authorization:`Bearer ${WHATSAPP_TOKEN}`}});
+    if(!r.ok)return res.status(r.status).send("Media fetch failed");
+    res.setHeader("Content-Type",r.headers.get("content-type")||"application/octet-stream");
+    const buf=Buffer.from(await r.arrayBuffer());res.send(buf);
+  }catch(e){res.status(e.status||500).send(e.message);}
+});
 
-  const token =
-    req.query["hub.verify_token"];
-
-  const challenge =
-    req.query["hub.challenge"];
-
-  if (
-    mode === "subscribe" &&
-    token === VERIFY_TOKEN
-  ) {
-    console.log(
-      "WEBHOOK VERIFIED"
-    );
-
-    return res
-      .status(200)
-      .send(challenge);
-  }
-
+/* Webhook */
+app.get("/webhook",(req,res)=>{
+  const mode=req.query["hub.mode"],token=req.query["hub.verify_token"],challenge=req.query["hub.challenge"];
+  if(mode==="subscribe"&&token===VERIFY_TOKEN)return res.status(200).send(challenge);
   return res.sendStatus(403);
 });
-
-/*
-|--------------------------------------------------------------------------
-| WhatsApp webhook
-|--------------------------------------------------------------------------
-*/
-
-app.post("/webhook", (req, res) => {
-  /*
-   * Respond immediately so Meta knows
-   * the webhook was received.
-   */
+app.post("/webhook",(req,res)=>{
   res.sendStatus(200);
-
-  try {
-    const body = req.body;
-
-    if (
-      body?.object !==
-      "whatsapp_business_account"
-    ) {
-      return;
-    }
-
-    const entries =
-      body.entry || [];
-
-    entries.forEach(entry => {
-      const changes =
-        entry.changes || [];
-
-      changes.forEach(change => {
-        const value =
-          change.value || {};
-
-        /*
-        |--------------------------------------------------------------------------
-        | Incoming messages
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-          Array.isArray(
-            value.messages
-          )
-        ) {
-          value.messages.forEach(
-            message => {
-              handleIncomingMessage(
-                message,
-                value
-              );
-            }
-          );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Message status updates
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-          Array.isArray(
-            value.statuses
-          )
-        ) {
-          value.statuses.forEach(
-            status => {
-              handleStatusUpdate(
-                status
-              );
-            }
-          );
-        }
-      });
-    });
-  } catch (error) {
-    console.error(
-      "Webhook processing error:",
-      error
-    );
-  }
+  try{
+    const body=req.body;if(body?.object!=="whatsapp_business_account")return;
+    (body.entry||[]).forEach(entry=>(entry.changes||[]).forEach(change=>{
+      const value=change.value||{};
+      (value.messages||[]).forEach(m=>handleIncomingMessage(m,value));
+      (value.statuses||[]).forEach(handleStatusUpdate);
+    }));
+  }catch(e){console.error("Webhook processing error:",e);}
 });
-
-function handleIncomingMessage(
-  message,
-  value
-) {
-  const phone =
-    cleanPhone(
-      message.from
-    );
-
-  if (!phone) return;
-
-  const profileName =
-    value?.contacts?.find(
-      c =>
-        cleanPhone(
-          c.wa_id
-        ) === phone
-    )?.profile?.name;
-
-  upsertContact({
-    phone,
-    wa_id: phone,
-    name:
-      profileName ||
-      "WhatsApp Contact"
-  });
-
-  const conversation =
-    getConversation(phone);
-
-  let text = "";
-
-  if (
-    message.type ===
-    "text"
-  ) {
-    text =
-      message.text?.body ||
-      "";
-  } else if (
-    message.type ===
-    "button"
-  ) {
-    text =
-      message.button?.text ||
-      "";
-  } else if (
-    message.type ===
-    "interactive"
-  ) {
-    text =
-      message.interactive
-        ?.button_reply?.title ||
-      message.interactive
-        ?.list_reply?.title ||
-      "";
-  } else {
-    text =
-      `[${message.type || "message"}]`;
+function handleIncomingMessage(message,value){
+  const phone=cleanPhone(message.from);if(!phone)return;
+  const profileName=value?.contacts?.find(c=>cleanPhone(c.wa_id)===phone)?.profile?.name;
+  const contact=upsertContact({phone,wa_id:phone,name:profileName||"WhatsApp Contact"});
+  const conversation=getConversation(phone);
+  let text="";let media=null;
+  if(message.type==="text")text=message.text?.body||"";
+  else if(message.type==="button")text=message.button?.text||"";
+  else if(message.type==="interactive")text=message.interactive?.button_reply?.title||message.interactive?.list_reply?.title||"";
+  else if(["image","video","audio","document","sticker"].includes(message.type)){
+    media={id:message[message.type]?.id||null,mime_type:message[message.type]?.mime_type||"",caption:message[message.type]?.caption||""};
+    text=media.caption||`[${message.type}]`;
+  } else text=`[${message.type||"message"}]`;
+  const timestamp=message.timestamp?new Date(Number(message.timestamp)*1000).toISOString():now();
+  db.messages.push({id:makeId("msg"),wamid:message.id,wa_id:phone,direction:"inbound",type:message.type||"unknown",text,media,raw:message,status:"received",timestamp});
+  conversation.unread=Number(conversation.unread||0)+1;conversation.lastIncomingAt=timestamp;conversation.lastMessageAt=timestamp;conversation.lastMessage=text;conversation.lastDirection="inbound";
+  const lead=leadForPhone(phone);
+  const lower=text.toLowerCase();
+  if(/^(stop|remove|unsubscribe|not interested|no thanks)\b/.test(lower)||lower.includes("not interested")){
+    if(lead){lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"customer_opt_out");}
+  } else if(media&&["image","video"].includes(message.type)){
+    if(lead)setLeadStage(lead,STAGES.PHOTO_RECEIVED,"photo_received");
   }
-
-  const timestamp =
-    message.timestamp
-      ? new Date(
-          Number(
-            message.timestamp
-          ) * 1000
-        ).toISOString()
-      : now();
-
-  const storedMessage = {
-    id: makeId("msg"),
-    wamid: message.id,
-    wa_id: phone,
-    direction: "inbound",
-    type:
-      message.type ||
-      "unknown",
-    text,
-    raw: message,
-    status: "received",
-    timestamp
-  };
-
-  db.messages.push(
-    storedMessage
-  );
-
-  conversation.unread =
-    Number(
-      conversation.unread || 0
-    ) + 1;
-
-  conversation.lastIncomingAt =
-    timestamp;
-
-  conversation.lastMessageAt =
-    timestamp;
-
-  conversation.lastMessage =
-    text;
-
-  conversation.lastDirection =
-    "inbound";
-
-  saveDatabase();
-
-  addEvent(
-    "incoming_message",
-    {
-      wa_id: phone,
-      type:
-        message.type
-    }
-  );
+  saveDatabase();addEvent("incoming_message",{wa_id:phone,type:message.type,mediaId:media?.id||null});
+}
+function handleStatusUpdate(status){
+  const message=db.messages.find(m=>m.wamid===status.id);
+  if(message){message.status=status.status;message.statusTimestamp=status.timestamp?new Date(Number(status.timestamp)*1000).toISOString():now();message.statusErrors=status.errors||[];}
+  db.campaigns.forEach(c=>{const r=c.results.find(x=>x.messageId===status.id);if(r)r.status=status.status;});
+  saveDatabase();addEvent("message_status",{wamid:status.id,status:status.status,recipient:status.recipient_id});
 }
 
-function handleStatusUpdate(
-  status
-) {
-  const message =
-    db.messages.find(
-      m =>
-        m.wamid ===
-        status.id
-    );
-
-  if (message) {
-    message.status =
-      status.status;
-
-    message.statusTimestamp =
-      status.timestamp
-        ? new Date(
-            Number(
-              status.timestamp
-            ) * 1000
-          ).toISOString()
-        : now();
-
-    message.statusErrors =
-      status.errors || [];
-  }
-
-  /*
-   * Update campaign statistics.
-   */
-  db.campaigns.forEach(
-    campaign => {
-      const result =
-        campaign.results.find(
-          r =>
-            r.messageId ===
-            status.id
-        );
-
-      if (result) {
-        result.status =
-          status.status;
-
-        if (
-          status.status ===
-          "delivered"
-        ) {
-          campaign.delivered++;
-        }
-
-        if (
-          status.status ===
-          "read"
-        ) {
-          campaign.read++;
-        }
-
-        if (
-          status.status ===
-          "failed"
-        ) {
-          result.error =
-            status.errors ||
-            [];
-        }
-      }
-    }
-  );
-
-  saveDatabase();
-
-  addEvent(
-    "message_status",
-    {
-      wamid: status.id,
-      status:
-        status.status,
-      recipient:
-        status.recipient_id
-    }
-  );
-}
-
-/*
-|--------------------------------------------------------------------------
-| Recent activity
-|--------------------------------------------------------------------------
-*/
-
-app.get("/api/events", (req, res) => {
-  res.json({
-    data:
-      db.events.slice(
-        0,
-        100
-      )
-  });
+/* Dashboard */
+app.get("/api/dashboard/stats",(req,res)=>{
+  processLeadTimers();
+  const totalContacts=db.contacts.length,totalMessages=db.messages.length,inbound=db.messages.filter(m=>m.direction==="inbound").length,outbound=db.messages.filter(m=>m.direction==="outbound").length,unread=Object.values(db.conversations).reduce((s,c)=>s+Number(c.unread||0),0);
+  const leadStats={};Object.values(STAGES).forEach(s=>leadStats[s]=db.leads.filter(l=>l.stage===s).length);
+  const contacted=db.leads.filter(l=>l.contactedAt).length;
+  res.json({totalContacts,totalMessages,inbound,outbound,unread,activeCampaigns:db.campaigns.filter(c=>c.status==="running").length,templates:db.templates.length,leadStats,contacted,percentages:Object.fromEntries(Object.entries(leadStats).map(([k,v])=>[k,contacted?Number((v/contacted*100).toFixed(1)):0]))});
 });
+app.get("/api/events",(req,res)=>res.json({data:db.events.slice(0,200)}));
+app.get("/api/settings/followups",(req,res)=>res.json({data:db.settings}));
+app.post("/api/settings/followups",(req,res)=>{const s=req.body||{};db.settings.followup1Days=Math.max(1,Number(s.followup1Days)||1);db.settings.followup2Days=Math.max(1,Number(s.followup2Days)||3);db.settings.finalReminderDays=Math.max(1,Number(s.finalReminderDays)||2);saveDatabase();res.json({success:true,data:db.settings});});
 
-/*
-|--------------------------------------------------------------------------
-| Dashboard statistics
-|--------------------------------------------------------------------------
-*/
+/* Connected numbers UI */
+app.get("/api/numbers",(req,res)=>res.json({data:db.connectedNumbers,active:process.env.CONNECTED_WHATSAPP_NUMBER||""}));
+app.post("/api/numbers",(req,res)=>{const {number,label}=req.body||{};if(!number)return res.status(400).json({error:"Number is required"});const item={id:makeId("number"),number:String(number),label:String(label||"WhatsApp Number"),createdAt:now()};db.connectedNumbers.push(item);saveDatabase();res.json({success:true,data:item});});
 
-app.get(
-  "/api/dashboard/stats",
-  (req, res) => {
-    const totalContacts =
-      db.contacts.length;
+/* Root */
+app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
 
-    const totalMessages =
-      db.messages.length;
-
-    const inbound =
-      db.messages.filter(
-        m =>
-          m.direction ===
-          "inbound"
-      ).length;
-
-    const outbound =
-      db.messages.filter(
-        m =>
-          m.direction ===
-          "outbound"
-      ).length;
-
-    const unread =
-      Object.values(
-        db.conversations
-      ).reduce(
-        (sum, c) =>
-          sum +
-          Number(
-            c.unread || 0
-          ),
-        0
-      );
-
-    const activeCampaigns =
-      db.campaigns.filter(
-        c =>
-          c.status ===
-          "running"
-      ).length;
-
-    res.json({
-      totalContacts,
-      totalMessages,
-      inbound,
-      outbound,
-      unread,
-      activeCampaigns,
-      templates:
-        db.templates.length,
-      lists:
-        db.lists.length
-    });
-  }
-);
-
-/*
-|--------------------------------------------------------------------------
-| Root
-|--------------------------------------------------------------------------
-*/
-
-app.get("/", (req, res) => {
-  res.sendFile(
-    path.join(
-      __dirname,
-      "public",
-      "index.html"
-    )
-  );
-});
-
-/*
-|--------------------------------------------------------------------------
-| Start
-|--------------------------------------------------------------------------
-*/
-
-app.listen(
-  PORT,
-  "0.0.0.0",
-  () => {
-    console.log(
-      `Royal Hair WhatsApp Dashboard running on port ${PORT}`
-    );
-  }
-);
+app.listen(PORT,"0.0.0.0",()=>console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`));
