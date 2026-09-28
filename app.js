@@ -21,7 +21,7 @@ const BITRIX_WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
 const GRAPH_API_VERSION = process.env.GRAPH_API_VERSION || "v23.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "database.json");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -29,7 +29,6 @@ const STAGES = {
   CONTACTED: "Contacted",
   PENDING_FOLLOWUP: "Pending for Follow-up",
   FOLLOWUP_DONE: "Follow-up Done",
-  FINAL_REMINDER: "Final Reminder",
   WAITING_RESPONSE: "Waiting for Response",
   PHOTO_RECEIVED: "Photo Received",
   JUNK: "Junk"
@@ -39,7 +38,6 @@ const STAGE_META = {
   [STAGES.CONTACTED]: { color: "#3b82f6", tone: "blue" },
   [STAGES.PENDING_FOLLOWUP]: { color: "#f59e0b", tone: "orange" },
   [STAGES.FOLLOWUP_DONE]: { color: "#8b5cf6", tone: "purple" },
-  [STAGES.FINAL_REMINDER]: { color: "#d97706", tone: "amber" },
   [STAGES.WAITING_RESPONSE]: { color: "#10b981", tone: "green" },
   [STAGES.PHOTO_RECEIVED]: { color: "#0f9aa8", tone: "teal" },
   [STAGES.JUNK]: { color: "#dc3545", tone: "red" }
@@ -57,8 +55,7 @@ const defaultDatabase = {
   leads: [],
   settings: {
     followup1Days: 1,
-    followup2Days: 3,
-    finalReminderDays: 2
+    followup2Days: 3
   },
   connectedNumbers: []
 };
@@ -238,17 +235,13 @@ function scheduleAfterInitial(lead, contactedAt) {
   lead.followup1SentAt = null;
   lead.followup2DueAt = null;
   lead.followup2SentAt = null;
-  lead.finalReminderDueAt = null;
-  lead.finalReminderSentAt = null;
 }
 function scheduleAfterFollowup1(lead, sentAt) {
   lead.followup1SentAt = sentAt;
   lead.followup2DueAt = addDays(sentAt, db.settings.followup2Days);
-  lead.finalReminderDueAt = addDays(sentAt, db.settings.followup2Days + db.settings.finalReminderDays);
 }
 function scheduleAfterFollowup2(lead, sentAt) {
   lead.followup2SentAt = sentAt;
-  lead.finalReminderDueAt = addDays(sentAt, db.settings.finalReminderDays);
 }
 function markContacted(lead, messageMeta, isInitial = false) {
   const sentAt = messageMeta.sentAt || now();
@@ -260,10 +253,9 @@ function markContacted(lead, messageMeta, isInitial = false) {
     setLeadStage(lead, STAGES.FOLLOWUP_DONE, "followup_1_sent");
   } else if (!lead.followup2SentAt) {
     scheduleAfterFollowup2(lead, sentAt);
-    setLeadStage(lead, STAGES.FOLLOWUP_DONE, "followup_2_sent");
+    setLeadStage(lead, STAGES.WAITING_RESPONSE, "followup_2_sent");
   } else {
-    lead.finalReminderSentAt = sentAt;
-    setLeadStage(lead, STAGES.WAITING_RESPONSE, "final_reminder_sent");
+    setLeadStage(lead, STAGES.WAITING_RESPONSE, "followup_sequence_completed");
   }
   lead.lastMessageAt = sentAt;
   lead.lastTemplate = messageMeta.templateName || null;
@@ -280,9 +272,6 @@ function processLeadTimers() {
     }
     if (lead.followup1SentAt && !lead.followup2SentAt && lead.followup2DueAt && new Date(lead.followup2DueAt).getTime() <= t && lead.stage === STAGES.FOLLOWUP_DONE) {
       setLeadStage(lead, STAGES.PENDING_FOLLOWUP, "followup_2_due");
-    }
-    if (lead.followup2SentAt && !lead.finalReminderSentAt && lead.finalReminderDueAt && new Date(lead.finalReminderDueAt).getTime() <= t && lead.stage === STAGES.FOLLOWUP_DONE) {
-      setLeadStage(lead, STAGES.FINAL_REMINDER, "final_reminder_due");
     }
   }
 }
@@ -488,7 +477,6 @@ async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", 
   if (action === "initial") markContacted(lead, { messageId, templateName: template.name, sentAt }, true);
   else if (action === "followup1") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
   else if (action === "followup2") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
-  else if (action === "final") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
   return { result, messageId, sentAt, components };
 }
 
@@ -577,7 +565,7 @@ app.post("/api/bitrix/send-template", async (req,res)=>{
     const lead=createOrUpdateLead({bitrixId:Number(leadId),phone,name:b.title||`Lead #${leadId}`,language,source:"Meta Ads",createdAt:b.dateCreate||now()});
     const result=await sendTemplateMessage({to:phone,name:templateName,language,components,leadId:lead.id,action});
     const sentAt=now(); markContacted(lead,{messageId:result?.messages?.[0]?.id||null,templateName,sentAt},action==="initial");
-    res.json({ok:true,leadId:Number(leadId),phone,contactedAt:lead.contactedAt,stage:lead.stage,followup1DueAt:lead.followup1DueAt,followup2DueAt:lead.followup2DueAt,finalReminderDueAt:lead.finalReminderDueAt,whatsapp:result,template:tpl||null});
+    res.json({ok:true,leadId:Number(leadId),phone,contactedAt:lead.contactedAt,stage:lead.stage,followup1DueAt:lead.followup1DueAt,followup2DueAt:lead.followup2DueAt,whatsapp:result,template:tpl||null});
   } catch(e){res.status(e.status||500).json({ok:false,error:e.message,meta:e.meta||null});}
 });
 
@@ -619,6 +607,38 @@ app.post("/api/contacts/import",(req,res)=>{
       if(label&&contact&&!contact.labels.includes(label))contact.labels.push(label);
     });
     saveDatabase(); res.json({success:true,imported,updated,total:imported+updated,label});
+  }catch(e){res.status(500).json({success:false,error:e.message});}
+});
+app.post("/api/leads/import-contacts",(req,res)=>{
+  try{
+    const contactIds=Array.isArray(req.body?.contactIds)?req.body.contactIds:[];
+    const label=String(req.body?.label||"").trim();
+    let added=0,updated=0,skipped=0;
+    let selected=contactIds.length ? db.contacts.filter(c=>contactIds.includes(c.id)) : db.contacts.filter(c=>label&&(c.labels||[]).includes(label));
+    selected.forEach(contact=>{
+      const phone=cleanPhone(contact.phone||contact.wa_id);
+      if(!phone){skipped++;return;}
+      let lead=leadForPhone(phone);
+      if(lead){
+        lead.name=contact.name||lead.name||phone;
+        lead.language=contact.language||lead.language||"";
+        lead.contactId=contact.id;
+        lead.source=lead.source||"Contact Import";
+        updated++;
+      }else{
+        lead=createOrUpdateLead({phone,name:contact.name||phone,language:contact.language||"",source:"Contact Import",contactId:contact.id});
+        added++;
+      }
+      if(lead.optOut||lead.stage===STAGES.JUNK){skipped++;return;}
+      const contactedAt=lead.contactedAt||now();
+      if(!lead.contactedAt) scheduleAfterInitial(lead,contactedAt);
+      setLeadStage(lead,STAGES.CONTACTED,"contact_import");
+      lead.contactedAt=lead.contactedAt||contactedAt;
+      lead.source=lead.source||"Contact Import";
+      lead.updatedAt=now();
+    });
+    saveDatabase();
+    res.json({success:true,added,updated,skipped,total:selected.length});
   }catch(e){res.status(500).json({success:false,error:e.message});}
 });
 app.get("/api/contacts/labels",(req,res)=>{
@@ -733,12 +753,16 @@ app.post("/api/campaigns",(req,res)=>{
       (async()=>{
         for(const recipient of recipients){
           try{
-            const lead = recipient.id && recipient.phone ? (recipient.stage !== undefined ? recipient : leadForPhone(recipient.phone)) : null;
+            let lead = recipient.id && recipient.phone ? (recipient.stage !== undefined ? recipient : leadForPhone(recipient.phone)) : null;
+            if(!lead && recipient.phone){
+              lead=createOrUpdateLead({phone:recipient.phone,name:recipient.name||recipient.profileName||recipient.phone,language:recipient.language||"",source:"Contact Broadcast"});
+            }
             const vars=Array.isArray(variablesByLead[recipient.id])?variablesByLead[recipient.id]:(Array.isArray(recipient.variables)?recipient.variables:[]);
             const sendTemplate = ((action==="broadcast" || autoLanguage) && templateName) ? (lead ? (chooseTemplateForLead(templateName,lead.language)||template) : template) : template;
             const sendMedia = autoLanguage ? (getTemplateConfig(sendTemplate).mediaUrl || mediaUrl || "") : (mediaUrl || getTemplateConfig(sendTemplate).mediaUrl || "");
+            const effectiveAction = lead ? (action === "broadcast" ? "initial" : action) : action;
             const sent = lead
-              ? await sendLeadMessage({lead,template:sendTemplate,variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters,action})
+              ? await sendLeadMessage({lead,template:sendTemplate,variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters,action:effectiveAction})
               : await (async()=>{const components=buildTemplateComponents(sendTemplate,{variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters});const result=await sendTemplateMessage({to:recipient.phone,name:sendTemplate.name,language:sendTemplate.language,components,action:"broadcast"});return {messageId:result?.messages?.[0]?.id||null,result};})();
             campaign.sent++;campaign.results.push({contactId:recipient.id,leadId:lead?.id||null,phone:recipient.phone,status:"accepted",messageId:sent.messageId,timestamp:now()});
           }catch(e){campaign.failed++;campaign.results.push({contactId:recipient.id,leadId:recipient?.id||null,phone:recipient.phone,status:"failed",error:e.message,timestamp:now()});}
@@ -877,7 +901,7 @@ app.get("/api/dashboard/stats",(req,res)=>{
 });
 app.get("/api/events",(req,res)=>res.json({data:db.events.slice(0,200)}));
 app.get("/api/settings/followups",(req,res)=>res.json({data:db.settings}));
-app.post("/api/settings/followups",(req,res)=>{const s=req.body||{};db.settings.followup1Days=Math.max(1,Number(s.followup1Days)||1);db.settings.followup2Days=Math.max(1,Number(s.followup2Days)||3);db.settings.finalReminderDays=Math.max(1,Number(s.finalReminderDays)||2);saveDatabase();res.json({success:true,data:db.settings});});
+app.post("/api/settings/followups",(req,res)=>{const s=req.body||{};db.settings.followup1Days=Math.max(1,Number(s.followup1Days)||1);db.settings.followup2Days=Math.max(1,Number(s.followup2Days)||3);saveDatabase();res.json({success:true,data:db.settings});});
 
 /* Connected numbers UI */
 app.get("/api/numbers",(req,res)=>res.json({data:db.connectedNumbers,active:process.env.CONNECTED_WHATSAPP_NUMBER||""}));

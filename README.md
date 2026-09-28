@@ -8,8 +8,7 @@ This build extends the existing Express + WhatsApp Cloud API + Bitrix dashboard.
 - Automatic follow-up due-date scheduling:
   - Follow-up 1: 1 day after initial contact
   - Follow-up 2: 3 days after Follow-up 1
-  - Final Reminder: 2 days after Follow-up 2
-  - Timing is configurable in Settings.
+  - After Follow-up 2, the lead moves to Waiting for Response; there is no Final Reminder stage.
 - Stage history, counters, search, language/date filters, select-all, bulk stage changes.
 - Approved Meta template sender with:
   - Fixed image header support
@@ -21,6 +20,8 @@ This build extends the existing Express + WhatsApp Cloud API + Bitrix dashboard.
 - Bitrix message sending moves a successfully contacted lead into the Lead Manager.
 - CSV import with labels and label-based broadcasts.
 - Stage-based and label-based broadcasts.
+- Successful contact-label broadcasts automatically create/update the matching Lead Manager lead and move it to Contacted.
+- Contacted stage includes an “Import from Contacts” picker to create/update lead cards from saved contacts.
 - WhatsApp webhook status tracking with WAMID, Sent/Delivered/Read/Failed.
 - Shared Inbox with incoming media display and outbound media attachment.
 - Dashboard pipeline statistics.
@@ -38,6 +39,7 @@ Set these in Render:
 - `BITRIX_WEBHOOK_URL`
 - `GRAPH_API_VERSION` (optional; defaults to `v23.0`)
 - `CONNECTED_WHATSAPP_NUMBER` (optional, display only)
+- `DATA_DIR` (recommended on Render: `/var/data`)
 
 Do not commit actual tokens to Git.
 
@@ -59,9 +61,7 @@ Follow-up templates without an IMAGE header do not receive media.
 
 ## Persistence
 
-The app creates `data/database.json` automatically.
-
-Render's normal filesystem can be ephemeral across redeploys/restarts. For production, attach a persistent disk to the service or migrate the data layer to PostgreSQL/Supabase. The application logic is intentionally kept behind simple data collections so that migration can be done later.
+The app stores all operational data in `database.json`. Set the `DATA_DIR` environment variable to a persistent directory such as `/var/data` on Render. Attach a Render Persistent Disk mounted at `/var/data` so leads, contacts, messages, campaigns, templates, settings and stage history survive redeploys/restarts. Without a persistent disk or external datastore, Render filesystem changes are ephemeral.
 
 ## Deploy
 
