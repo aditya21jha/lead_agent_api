@@ -39,6 +39,7 @@ const pgPool = DATABASE_URL
   : null;
 
 const DB_STATE_ID = "royal_hair_main";
+let db = structuredClone(defaultDatabase);
 let dbSaveTimer = null;
 let dbSaveInFlight = null;
 let dbSaveQueued = false;
