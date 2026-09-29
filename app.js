@@ -227,19 +227,29 @@ function getConversation(phone) {
   }
   return db.conversations[normalized];
 }
-function metaRequest(endpoint, options = {}) {
+async function metaRequest(endpoint, options = {}) {
   if (!WHATSAPP_TOKEN) throw new Error("WHATSAPP_TOKEN is not configured.");
-  return fetch(`${GRAPH_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  }).then(async response => {
+  let requestBody = null;
+  try { requestBody = options.body ? JSON.parse(options.body) : null; } catch {}
+  const recipient = requestBody?.to || requestBody?.recipient?.to || null;
+  const safeRecipient = recipient ? `***${String(recipient).slice(-4)}` : "n/a";
+  console.log(`[META SEND] ${new Date().toISOString()} ${options.method || "GET"} ${endpoint} recipient=${safeRecipient}`);
+  if (requestBody?.type === "template") {
+    console.log(`[META SEND] template=${requestBody.template?.name || "n/a"} language=${requestBody.template?.language?.code || "n/a"}`);
+  }
+  try {
+    const response = await fetch(`${GRAPH_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      }
+    });
     const text = await response.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    console.log(`[META RESPONSE] HTTP ${response.status} ok=${response.ok} ${JSON.stringify(data)}`);
     if (!response.ok) {
       const error = new Error(data?.error?.message || data?.message || "Meta API request failed");
       error.status = response.status;
@@ -247,7 +257,10 @@ function metaRequest(endpoint, options = {}) {
       throw error;
     }
     return data;
-  });
+  } catch (error) {
+    console.error(`[META REQUEST ERROR] ${error.message}`, error.meta || "");
+    throw error;
+  }
 }
 function stageColor(stage) { return STAGE_META[stage]?.color || "#64748b"; }
 function addDays(iso, days) {
@@ -1065,11 +1078,17 @@ app.get("/webhook",(req,res)=>{
 app.post("/webhook",(req,res)=>{
   res.sendStatus(200);
   try{
-    const body=req.body;if(body?.object!=="whatsapp_business_account")return;
+    const body=req.body;
+    console.log(`[WEBHOOK] ${new Date().toISOString()} object=${body?.object || "unknown"}`);
+    if(body?.object!=="whatsapp_business_account")return;
     (body.entry||[]).forEach(entry=>(entry.changes||[]).forEach(change=>{
       const value=change.value||{};
+      console.log(`[WEBHOOK CHANGE] field=${change.field || "unknown"} messages=${(value.messages||[]).length} statuses=${(value.statuses||[]).length}`);
       (value.messages||[]).forEach(m=>handleIncomingMessage(m,value));
-      (value.statuses||[]).forEach(handleStatusUpdate);
+      (value.statuses||[]).forEach(status=>{
+        console.log(`[WEBHOOK STATUS] wamid=${status?.id || "n/a"} status=${status?.status || "n/a"} recipient=***${String(status?.recipient_id || "").slice(-4)}`);
+        handleStatusUpdate(status);
+      });
     }));
   }catch(e){console.error("Webhook processing error:",e);}
 });
