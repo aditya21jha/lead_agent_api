@@ -39,7 +39,6 @@ const pgPool = DATABASE_URL
   : null;
 
 const DB_STATE_ID = "royal_hair_main";
-let db = structuredClone(defaultDatabase);
 let dbSaveTimer = null;
 let dbSaveInFlight = null;
 let dbSaveQueued = false;
@@ -79,6 +78,10 @@ const defaultDatabase = {
   },
   connectedNumbers: []
 };
+
+// Runtime state. Initialize before timers/middleware can access it.
+let db = structuredClone(defaultDatabase);
+let appReady = false;
 
 function normalizeDatabase(data) {
   const source = data && typeof data === "object" ? data : {};
@@ -352,8 +355,7 @@ function processLeadTimers() {
     }
   }
 }
-setInterval(processLeadTimers, 30000);
-processLeadTimers();
+// Lead timers are started after the database has been loaded in startServer().
 
 function storeOutboundMessage({ to, messageId, type, text = "", templateName = null, templateLanguage = null, templateComponents = [], metaResponse = null, leadId = null, action = null }) {
   const phone = cleanPhone(to);
@@ -1124,6 +1126,8 @@ app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")))
 
 async function startServer() {
   db = await loadDatabase();
+  processLeadTimers();
+  setInterval(processLeadTimers, 30000);
   appReady = true;
   app.listen(PORT,"0.0.0.0",()=>{
     console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`);
