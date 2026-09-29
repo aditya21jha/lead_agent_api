@@ -2,6 +2,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const { Pool } = require("pg");
 const {
   getCountries,
   getCountryCallingCode
@@ -11,6 +12,11 @@ const app = express();
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, "public")));
+
+app.use((req, res, next) => {
+  if (!appReady && !req.path.startsWith("/webhook")) return res.status(503).json({ ok: false, error: "Application is starting. Please retry in a moment." });
+  next();
+});
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
@@ -23,7 +29,20 @@ const GRAPH_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "database.json");
+const DATABASE_URL = process.env.DATABASE_URL || "";
+const DB_PERSIST_DEBOUNCE_MS = Math.max(250, Number(process.env.DB_PERSIST_DEBOUNCE_MS || 750));
+
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const pgPool = DATABASE_URL
+  ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 5 })
+  : null;
+
+const DB_STATE_ID = "royal_hair_main";
+let dbSaveTimer = null;
+let dbSaveInFlight = null;
+let dbSaveQueued = false;
+
 
 const STAGES = {
   CONTACTED: "Contacted",
@@ -60,35 +79,92 @@ const defaultDatabase = {
   connectedNumbers: []
 };
 
-function loadDatabase() {
+function normalizeDatabase(data) {
+  const source = data && typeof data === "object" ? data : {};
+  return {
+    ...structuredClone(defaultDatabase),
+    ...source,
+    contacts: Array.isArray(source.contacts) ? source.contacts : [],
+    lists: Array.isArray(source.lists) ? source.lists : [],
+    conversations: source.conversations && typeof source.conversations === "object" ? source.conversations : {},
+    messages: Array.isArray(source.messages) ? source.messages : [],
+    campaigns: Array.isArray(source.campaigns) ? source.campaigns : [],
+    templates: Array.isArray(source.templates) ? source.templates : [],
+    templateConfigs: source.templateConfigs && typeof source.templateConfigs === "object" ? source.templateConfigs : {},
+    events: Array.isArray(source.events) ? source.events : [],
+    leads: Array.isArray(source.leads) ? source.leads : [],
+    settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}) },
+    connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : []
+  };
+}
+
+function loadLocalDatabase() {
   try {
     if (!fs.existsSync(DATA_FILE)) {
       fs.writeFileSync(DATA_FILE, JSON.stringify(defaultDatabase, null, 2));
       return structuredClone(defaultDatabase);
     }
-    const data = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    return {
-      ...structuredClone(defaultDatabase),
-      ...data,
-      settings: {
-        ...structuredClone(defaultDatabase.settings),
-        ...(data.settings || {})
-      }
-    };
+    return normalizeDatabase(JSON.parse(fs.readFileSync(DATA_FILE, "utf8")));
   } catch (error) {
     console.error("Database load error:", error);
     return structuredClone(defaultDatabase);
   }
 }
-let db = loadDatabase();
 
-function saveDatabase() {
+async function loadDatabase() {
+  if (!pgPool) return loadLocalDatabase();
   try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    await pgPool.query(`
+      CREATE TABLE IF NOT EXISTS app_state (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    const result = await pgPool.query("SELECT data FROM app_state WHERE id = $1", [DB_STATE_ID]);
+    if (result.rows[0]?.data) return normalizeDatabase(result.rows[0].data);
+
+    const local = loadLocalDatabase();
+    await pgPool.query(
+      `INSERT INTO app_state (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING`,
+      [DB_STATE_ID, JSON.stringify(local)]
+    );
+    return local;
   } catch (error) {
-    console.error("Database save error:", error);
+    console.error("PostgreSQL load error; using local database fallback:", error);
+    return loadLocalDatabase();
   }
 }
+
+function persistDatabaseNow() {
+  const snapshot = JSON.stringify(db);
+  if (!pgPool) {
+    try { fs.writeFileSync(DATA_FILE, snapshot); } catch (error) { console.error("Database save error:", error); }
+    return Promise.resolve();
+  }
+  return pgPool.query(
+    `INSERT INTO app_state (id, data, updated_at)
+     VALUES ($1, $2::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
+    [DB_STATE_ID, snapshot]
+  ).catch(error => console.error("PostgreSQL save error:", error));
+}
+
+function saveDatabase() {
+  if (dbSaveTimer) clearTimeout(dbSaveTimer);
+  dbSaveTimer = setTimeout(() => {
+    dbSaveTimer = null;
+    dbSaveQueued = true;
+    if (dbSaveInFlight) return;
+    dbSaveQueued = false;
+    dbSaveInFlight = persistDatabaseNow().finally(() => {
+      dbSaveInFlight = null;
+      if (dbSaveQueued) saveDatabase();
+    });
+  }, DB_PERSIST_DEBOUNCE_MS);
+}
+
+
 function now() { return new Date().toISOString(); }
 function cleanPhone(value) { return String(value || "").replace(/\D/g, ""); }
 function makeId(prefix = "id") {
@@ -735,43 +811,178 @@ app.post("/api/messages/send", async (req,res)=>{
 });
 
 /* Campaigns / broadcast */
-app.get("/api/campaigns",(req,res)=>res.json({data:db.campaigns}));
-app.post("/api/campaigns",(req,res)=>{
-  (async()=>{
-    try{
-      const {name,leadIds,contactIds,listId,label,templateName,language,variablesByLead={},delayMs=800,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
-      const template=templateByKey(templateName,language);if(!template||String(template.status).toUpperCase()!=="APPROVED")return res.status(400).json({error:"An approved Meta template is required."});
-      let recipients=[];
-      if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
-      else if(listId){const list=db.lists.find(l=>l.id===listId);if(!list)return res.status(404).json({error:"List not found"});recipients=db.contacts.filter(c=>list.contactIds.includes(c.id));}
-      else if(label){recipients=db.contacts.filter(c=>(c.labels||[]).includes(label));}
-      else if(Array.isArray(contactIds)) recipients=contactIds.map(id=>db.contacts.find(c=>c.id===id)).filter(Boolean);
-      recipients=recipients.filter(x=>{const l=leadForPhone(x.phone);return x&&!l?.optOut&&l?.stage!==STAGES.JUNK;});
-      if(!recipients.length)return res.status(400).json({error:"No eligible contacts selected."});
-      const campaign={id:makeId("campaign"),name:name||`Campaign ${new Date().toLocaleString()}`,templateName,language,action,status:"running",createdAt:now(),total:recipients.length,sent:0,failed:0,delivered:0,read:0,results:[]};
-      db.campaigns.unshift(campaign);saveDatabase();res.json({success:true,campaignId:campaign.id,total:recipients.length});
-      (async()=>{
-        for(const recipient of recipients){
-          try{
-            let lead = recipient.id && recipient.phone ? (recipient.stage !== undefined ? recipient : leadForPhone(recipient.phone)) : null;
-            if(!lead && recipient.phone){
-              lead=createOrUpdateLead({phone:recipient.phone,name:recipient.name||recipient.profileName||recipient.phone,language:recipient.language||"",source:"Contact Broadcast"});
-            }
-            const vars=Array.isArray(variablesByLead[recipient.id])?variablesByLead[recipient.id]:(Array.isArray(recipient.variables)?recipient.variables:[]);
-            const sendTemplate = ((action==="broadcast" || autoLanguage) && templateName) ? (lead ? (chooseTemplateForLead(templateName,lead.language)||template) : template) : template;
-            const sendMedia = autoLanguage ? (getTemplateConfig(sendTemplate).mediaUrl || mediaUrl || "") : (mediaUrl || getTemplateConfig(sendTemplate).mediaUrl || "");
-            const effectiveAction = lead ? (action === "broadcast" ? "initial" : action) : action;
-            const sent = lead
-              ? await sendLeadMessage({lead,template:sendTemplate,variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters,action:effectiveAction})
-              : await (async()=>{const components=buildTemplateComponents(sendTemplate,{variables:vars,mediaUrl:sendMedia,buttonPayloads,buttonParameters});const result=await sendTemplateMessage({to:recipient.phone,name:sendTemplate.name,language:sendTemplate.language,components,action:"broadcast"});return {messageId:result?.messages?.[0]?.id||null,result};})();
-            campaign.sent++;campaign.results.push({contactId:recipient.id,leadId:lead?.id||null,phone:recipient.phone,status:"accepted",messageId:sent.messageId,timestamp:now()});
-          }catch(e){campaign.failed++;campaign.results.push({contactId:recipient.id,leadId:recipient?.id||null,phone:recipient.phone,status:"failed",error:e.message,timestamp:now()});}
-          saveDatabase();await new Promise(r=>setTimeout(r,Math.max(300,Number(delayMs)||800)));
+const MIN_CAMPAIGN_DELAY_MS = Math.max(1000, Number(process.env.MIN_CAMPAIGN_DELAY_MS || 3000));
+const MAX_CAMPAIGN_DELAY_MS = Math.max(MIN_CAMPAIGN_DELAY_MS, Number(process.env.MAX_CAMPAIGN_DELAY_MS || 10000));
+const campaignWorkers = new Set();
+
+function campaignDelayMs(requested) {
+  const value = Number(requested);
+  if (!Number.isFinite(value)) return MIN_CAMPAIGN_DELAY_MS;
+  return Math.min(MAX_CAMPAIGN_DELAY_MS, Math.max(MIN_CAMPAIGN_DELAY_MS, value));
+}
+
+function campaignRecipientSnapshot(recipient) {
+  return {
+    id: recipient?.id || null,
+    phone: cleanPhone(recipient?.phone || recipient?.wa_id || ""),
+    name: recipient?.name || recipient?.profileName || "",
+    language: recipient?.language || "",
+    variables: Array.isArray(recipient?.variables) ? recipient.variables : []
+  };
+}
+
+async function runCampaign(campaign) {
+  if (!campaign || campaign.status !== "running" || campaignWorkers.has(campaign.id)) return;
+  campaignWorkers.add(campaign.id);
+  campaign.workerRunning = true;
+  saveDatabase();
+  try {
+    const recipients = Array.isArray(campaign.recipients) ? campaign.recipients : [];
+    while (campaign.status === "running" && campaign.nextIndex < recipients.length) {
+      const recipient = recipients[campaign.nextIndex];
+      const lead = recipient.phone ? (leadForPhone(recipient.phone) || createOrUpdateLead({
+        phone: recipient.phone,
+        name: recipient.name || recipient.phone,
+        language: recipient.language || "",
+        source: "Contact Broadcast"
+      })) : null;
+
+      try {
+        if (!recipient.phone) throw new Error("Recipient has no phone number.");
+        if (lead?.optOut || lead?.stage === STAGES.JUNK) throw new Error("Recipient is opted out/Junk.");
+
+        const baseTemplate = templateByKey(campaign.templateName, campaign.language);
+        if (!baseTemplate || String(baseTemplate.status).toUpperCase() !== "APPROVED") {
+          throw new Error("Approved campaign template is no longer available.");
         }
-        campaign.status="completed";campaign.completedAt=now();saveDatabase();addEvent("campaign_completed",{campaignId:campaign.id});
-      })();
-    }catch(e){if(!res.headersSent)res.status(500).json({error:e.message});}
-  })();
+
+        const template = campaign.autoLanguage
+          ? (chooseTemplateForLead(campaign.templateName, lead?.language) || baseTemplate)
+          : baseTemplate;
+        const vars = Array.isArray(campaign.variablesByLead?.[recipient.id])
+          ? campaign.variablesByLead[recipient.id]
+          : (Array.isArray(recipient.variables) ? recipient.variables : []);
+        const mediaUrl = campaign.autoLanguage
+          ? (getTemplateConfig(template).mediaUrl || campaign.mediaUrl || "")
+          : (campaign.mediaUrl || getTemplateConfig(template).mediaUrl || "");
+        const action = campaign.action === "broadcast" ? "initial" : campaign.action;
+        const sent = await sendLeadMessage({
+          lead,
+          template,
+          variables: vars,
+          mediaUrl,
+          buttonPayloads: campaign.buttonPayloads || {},
+          buttonParameters: campaign.buttonParameters || {},
+          action
+        });
+
+        campaign.sent = Number(campaign.sent || 0) + 1;
+        campaign.results.push({
+          contactId: recipient.id,
+          leadId: lead?.id || null,
+          phone: recipient.phone,
+          status: "accepted",
+          messageId: sent.messageId,
+          timestamp: now()
+        });
+      } catch (e) {
+        campaign.failed = Number(campaign.failed || 0) + 1;
+        campaign.results.push({
+          contactId: recipient.id,
+          leadId: lead?.id || null,
+          phone: recipient.phone,
+          status: "failed",
+          error: e.message,
+          timestamp: now()
+        });
+      }
+
+      campaign.nextIndex += 1;
+      campaign.updatedAt = now();
+      saveDatabase();
+
+      if (campaign.status === "running" && campaign.nextIndex < recipients.length) {
+        await new Promise(resolve => setTimeout(resolve, campaignDelayMs(campaign.delayMs)));
+      }
+    }
+
+    if (campaign.status === "running" && campaign.nextIndex >= recipients.length) {
+      campaign.status = "completed";
+      campaign.completedAt = now();
+      campaign.workerRunning = false;
+      campaign.updatedAt = now();
+      saveDatabase();
+      addEvent("campaign_completed", { campaignId: campaign.id });
+    }
+  } catch (error) {
+    campaign.status = "paused";
+    campaign.workerRunning = false;
+    campaign.error = error.message;
+    campaign.updatedAt = now();
+    saveDatabase();
+    addEvent("campaign_paused", { campaignId: campaign.id, error: error.message });
+  } finally {
+    campaignWorkers.delete(campaign.id);
+    campaign.workerRunning = false;
+    saveDatabase();
+  }
+}
+
+function resumeRunningCampaigns() {
+  for (const campaign of db.campaigns) {
+    if (campaign.status === "running" && Array.isArray(campaign.recipients)) {
+      setTimeout(() => runCampaign(campaign), 1000);
+    }
+  }
+}
+
+app.get("/api/campaigns", (req,res)=>res.json({data:db.campaigns}));
+app.post("/api/campaigns", (req,res)=>{
+  try {
+    const {name,leadIds,contactIds,listId,label,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
+    const template=templateByKey(templateName,language);
+    if(!template||String(template.status).toUpperCase()!=="APPROVED") return res.status(400).json({error:"An approved Meta template is required."});
+
+    let recipients=[];
+    if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
+    else if(listId){const list=db.lists.find(l=>l.id===listId);if(!list)return res.status(404).json({error:"List not found"});recipients=db.contacts.filter(c=>list.contactIds.includes(c.id));}
+    else if(label) recipients=db.contacts.filter(c=>(c.labels||[]).includes(label));
+    else if(Array.isArray(contactIds)) recipients=contactIds.map(id=>db.contacts.find(c=>c.id===id)).filter(Boolean);
+
+    recipients=recipients.filter(x=>x?.phone && !leadForPhone(x.phone)?.optOut && leadForPhone(x.phone)?.stage!==STAGES.JUNK);
+    if(!recipients.length)return res.status(400).json({error:"No eligible contacts selected."});
+
+    const campaign={
+      id:makeId("campaign"),
+      name:name||`Campaign ${new Date().toLocaleString()}`,
+      templateName,language,action,status:"running",createdAt:now(),updatedAt:now(),
+      total:recipients.length,sent:0,failed:0,delivered:0,read:0,nextIndex:0,
+      delayMs:campaignDelayMs(delayMs),mediaUrl,buttonPayloads,buttonParameters,autoLanguage,
+      variablesByLead,recipients:recipients.map(campaignRecipientSnapshot),results:[],workerRunning:false
+    };
+    db.campaigns.unshift(campaign);
+    saveDatabase();
+    addEvent("campaign_started", { campaignId: campaign.id, total: campaign.total, delayMs: campaign.delayMs });
+    setTimeout(()=>runCampaign(campaign),100);
+    res.json({success:true,campaignId:campaign.id,total:campaign.total,delayMs:campaign.delayMs});
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.post("/api/campaigns/:id/pause",(req,res)=>{
+  const campaign=db.campaigns.find(c=>c.id===req.params.id);
+  if(!campaign)return res.status(404).json({error:"Campaign not found"});
+  if(campaign.status==="running")campaign.status="paused";
+  campaign.updatedAt=now();saveDatabase();
+  res.json({success:true,data:campaign});
+});
+
+app.post("/api/campaigns/:id/resume",(req,res)=>{
+  const campaign=db.campaigns.find(c=>c.id===req.params.id);
+  if(!campaign)return res.status(404).json({error:"Campaign not found"});
+  if(campaign.nextIndex >= (campaign.recipients||[]).length)return res.status(400).json({error:"Campaign is already complete."});
+  campaign.status="running";campaign.error=null;campaign.updatedAt=now();saveDatabase();
+  setTimeout(()=>runCampaign(campaign),100);
+  res.json({success:true,data:campaign});
 });
 
 /* Inbox */
@@ -910,4 +1121,17 @@ app.post("/api/numbers",(req,res)=>{const {number,label}=req.body||{};if(!number
 /* Root */
 app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
 
-app.listen(PORT,"0.0.0.0",()=>console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`));
+async function startServer() {
+  db = await loadDatabase();
+  appReady = true;
+  app.listen(PORT,"0.0.0.0",()=>{
+    console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`);
+    console.log(`Persistence: ${pgPool ? "PostgreSQL" : "local JSON fallback"}`);
+    resumeRunningCampaigns();
+  });
+}
+
+startServer().catch(error=>{
+  console.error("Fatal startup error:", error);
+  process.exit(1);
+});
