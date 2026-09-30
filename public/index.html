@@ -150,7 +150,7 @@ input,select,textarea{width:100%;border:1px solid rgba(20,70,100,.12);background
     <div class="page-head"><div><h2 style="font-size:18px">New broadcast</h2><p>Use a label for imported contacts or select an existing lead stage.</p></div></div>
     <div class="form-grid">
       <div class="field"><label>Audience</label><select id="broadcastAudience" onchange="renderBroadcastAudience()"><option value="label">Contact label</option><option value="stage">Lead stage</option></select></div>
-      <div class="field"><label>Label / Stage</label><select id="broadcastAudienceValue" onchange="renderBroadcastAudience()"></select></div>
+      <div class="field"><label>Label / Stage</label><select id="broadcastAudienceValue" onchange="updateBroadcastCount()"></select><div class="hint" id="broadcastAudienceHint" style="margin-top:5px"></div></div>
       <div class="field"><label>Language</label><select id="broadcastLanguage" onchange="renderBroadcastAudience()"><option value="">All languages</option></select></div>
       <div class="field"><label>Approved template</label><select id="broadcastTemplate" onchange="renderBroadcastFields()"></select></div>
       <div class="field full" id="broadcastFields"></div>
@@ -296,7 +296,8 @@ function renderSingleSender(){const type=document.getElementById("singleType").v
 async function sendSingle(){const country=document.getElementById("singleCountry").value,phone=document.getElementById("singlePhone").value.replace(/\D/g,"");if(!country||!phone)return toast("Select country and enter phone");try{const type=document.getElementById("singleType").value;if(type==="text"){await api("/api/messages/send",{method:"POST",body:JSON.stringify({to:country+phone,type:"text",text:document.getElementById("singleText").value})})}else{const t=getSelectedTemplateFromValue(document.getElementById("singleTemplate").value);if(!t)return toast("Select a template");const x=collectSenderData(t,"single"),media=await ensureTemplateConfig(t,"single");await api("/api/messages/send",{method:"POST",body:JSON.stringify({to:country+phone,type:"template",template:{name:t.name,language:t.language,variables:x.variables,mediaUrl:media,buttonPayloads:x.buttonPayloads}})})}toast("Message accepted by Meta")}catch(e){toast(e.message,true)}}
 
 async function loadCountries(){try{countries=(await api("/api/countries")).data||[];document.getElementById("singleCountry").innerHTML=`<option value="">Country</option>`+countries.map(c=>`<option value="${esc(c.callingCode)}">${esc(c.name)} +${esc(c.callingCode)}</option>`).join("")}catch(e){}}
-async function loadLabels(){try{const d=await api("/api/contacts/labels");const labels=d.data||[];document.getElementById("labelList").innerHTML=labels.length?labels.map(x=>`<button class="label-chip" onclick="setContactLabel('${esc(x.name)}')">${esc(x.name)} · ${x.count}</button>`).join(""):"<span class='hint'>No labels yet.</span>";document.getElementById("contactLabelFilter").innerHTML=`<option value="">All contacts</option>`+labels.map(x=>`<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("")}catch(e){}}
+async function loadLabels(){try{const d=await api("/api/contacts/labels");const labels=d.data||[];document.getElementById("labelList").innerHTML=labels.length?labels.map(x=>{const key=encodeURIComponent(x.name);return `<span class="label-chip" style="display:inline-flex;align-items:center;gap:6px"><button class="btn btn-ghost btn-sm" style="padding:3px 6px;border:0;background:transparent" onclick="setContactLabel(decodeURIComponent('${key}'))">${esc(x.name)} · ${x.count}</button><button class="btn btn-danger btn-sm" style="padding:3px 6px" title="Delete label" onclick="event.stopPropagation();deleteContactLabel(decodeURIComponent('${key}'))">×</button></span>`}).join(""):"<span class='hint'>No labels yet.</span>";document.getElementById("contactLabelFilter").innerHTML=`<option value="">All contacts</option>`+labels.map(x=>`<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("")}catch(e){toast(e.message,true)}}
+async function deleteContactLabel(label){if(!label)return;if(!confirm(`Delete label "${label}" from all contacts?`))return;try{const r=await api(`/api/contacts/labels?name=${encodeURIComponent(label)}`,{method:"DELETE"});toast(`Label "${label}" deleted from ${r.removed||0} contact entries`);if(document.getElementById("contactLabelFilter")?.value===label)document.getElementById("contactLabelFilter").value="";loadContacts();loadLabels();initBroadcastComposer()}catch(e){toast(e.message,true)}}
 function setContactLabel(label){document.getElementById("contactLabelFilter").value=label;renderContacts()}
 async function loadContacts(){try{contacts=(await api("/api/contacts")).data||[];renderContacts()}catch(e){toast(e.message,true)}}
 function renderContacts(){const q=(document.getElementById("contactSearch")?.value||"").toLowerCase(),label=document.getElementById("contactLabelFilter")?.value||"";const arr=contacts.filter(c=>(!q||[c.name,c.phone,c.language].some(v=>String(v||"").toLowerCase().includes(q)))&&(!label||(c.labels||[]).includes(label)));document.getElementById("contactsTable").innerHTML=arr.length?arr.map(c=>`<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.phone)}</td><td>${esc(c.language||"—")}</td><td>${esc((c.labels||[]).join(", ")||"—")}</td><td>${fmt(c.createdAt)}</td></tr>`).join(""):`<tr><td colspan="5"><div class="empty">No contacts found.</div></td></tr>`}
@@ -339,7 +340,7 @@ async function attachChatMedia(input){
 async function sendChatMessage(){if(!selectedConversation)return toast("Select a conversation");const text=document.getElementById("chatText").value.trim();if(!text&&!pendingChatMedia)return;try{if(pendingChatMedia){const reader=new FileReader();const data=await new Promise((resolve,reject)=>{reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(pendingChatMedia)});await api(`/api/inbox/${selectedConversation}/send-media`,{method:"POST",body:JSON.stringify({mimeType:pendingChatMedia.type,filename:pendingChatMedia.name,dataUrl:data,caption:text})});pendingChatMedia=null;document.getElementById("chatMediaFile").value=""}else{await api(`/api/inbox/${selectedConversation}/send`,{method:"POST",body:JSON.stringify({type:"text",text})})}document.getElementById("chatText").value="";document.getElementById("chatText").placeholder="Write a reply…";await loadInbox()}catch(e){toast(e.message,true)}}
 function chatKeydown(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChatMessage()}}
 
-async function loadStatuses(){try{const q=new URLSearchParams();const p=document.getElementById("statusPhone")?.value.trim(),f=document.getElementById("statusFrom")?.value,t=document.getElementById("statusTo")?.value;if(p)q.set("phone",p);if(f)q.set("from",f);if(t)q.set("to",t);const d=await api("/api/messages/status?"+q.toString());statuses=d.data||[];document.getElementById("statusTable").innerHTML=statuses.length?statuses.map(m=>`<tr><td>${fmt(m.timestamp)}</td><td>${esc(m.wa_id)}</td><td>${esc(m.templateName||"Free message")}</td><td style="max-width:260px;word-break:break-all">${esc(m.wamid||"—")}</td><td><span class="badge ${m.status==="read"?"badge-green":m.status==="failed"?"badge-red":"badge-blue"}">${esc(m.status||"—")}</span></td><td>${esc(m.direction)}</td></tr>`).join(""):`<tr><td colspan="6"><div class="empty">No messages found.</div></td></tr>`}catch(e){toast(e.message,true)}}
+async function loadStatuses(){try{const q=new URLSearchParams();const p=document.getElementById("statusPhone")?.value.trim(),f=document.getElementById("statusFrom")?.value,t=document.getElementById("statusTo")?.value;if(p)q.set("phone",p);if(f)q.set("from",f);if(t)q.set("to",t);const d=await api("/api/messages/status?"+q.toString());statuses=d.data||[];document.getElementById("statusTable").innerHTML=statuses.length?statuses.map(m=>{const errs=Array.isArray(m.statusErrors)?m.statusErrors:[];const reason=errs.length?errs.map(e=>[e.code,e.title,e.message].filter(Boolean).join(" · ")).join(" | "):"";return `<tr><td>${fmt(m.timestamp)}</td><td>${esc(m.wa_id)}</td><td>${esc(m.templateName||"Free message")}</td><td style="max-width:260px;word-break:break-all">${esc(m.wamid||"—")}</td><td><span class="badge ${m.status==="read"?"badge-green":m.status==="failed"?"badge-red":"badge-blue"}">${esc(m.status||"—")}</span>${reason?`<div class="danger-text" style="font-size:9px;margin-top:4px;max-width:340px" title="${esc(reason)}">${esc(reason)}</div>`:""}</td><td>${esc(m.direction)}</td></tr>`}).join(""):`<tr><td colspan="6"><div class="empty">No messages found.</div></td></tr>`}catch(e){toast(e.message,true)}}
 
 async function loadActivity(){try{const d=await api("/api/events");document.getElementById("activityContainer").innerHTML=(d.data||[]).map(e=>`<div style="padding:11px 0;border-bottom:1px solid rgba(20,70,100,.07)"><div style="display:flex;justify-content:space-between"><b style="font-size:10px">${esc(e.type)}</b><span class="hint">${fmt(e.timestamp)}</span></div><pre style="white-space:pre-wrap;font-size:9px;color:#718897">${esc(JSON.stringify(e.data,null,2))}</pre></div>`).join("")||`<div class="empty">No activity yet.</div>`}catch(e){toast(e.message,true)}}
 async function runWhatsAppDiagnostic(){try{const el=document.getElementById("whatsappDiagnostic");el.textContent="Running…";const d=await api("/api/diagnostics/whatsapp");el.textContent=JSON.stringify(d,null,2)}catch(e){document.getElementById("whatsappDiagnostic").textContent=`Diagnostic failed: ${e.message}`}}
@@ -363,30 +364,55 @@ async function initBroadcastComposer(){
     renderBroadcastAudience();
   }catch(e){}
 }
+function getBroadcastSelectedValues(){
+  const sel=document.getElementById("broadcastAudienceValue");
+  return Array.from(sel?.selectedOptions||[]).map(o=>o.value).filter(Boolean);
+}
 function renderBroadcastAudience(){
-  const mode=document.getElementById("broadcastAudience").value, sel=document.getElementById("broadcastAudienceValue");
-  if(mode==="label") sel.innerHTML=contactLabels.map(x=>`<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("")||`<option value="">No labels</option>`;
-  else sel.innerHTML=STAGES.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+  const mode=document.getElementById("broadcastAudience").value, sel=document.getElementById("broadcastAudienceValue"), hint=document.getElementById("broadcastAudienceHint");
+  if(mode==="label"){
+    sel.multiple=true; sel.size=Math.min(7,Math.max(3,contactLabels.length||3));
+    sel.innerHTML=contactLabels.map(x=>`<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("")||`<option value="" disabled>No labels</option>`;
+    if(hint)hint.textContent="Hold Ctrl (Windows) or Cmd (Mac) to select multiple CSV labels.";
+  }else{
+    sel.multiple=false; sel.size=1;
+    sel.innerHTML=STAGES.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+    if(hint)hint.textContent="Select one lead stage.";
+  }
   renderBroadcastFields(); updateBroadcastCount();
 }
 function renderBroadcastFields(){const t=getSelectedTemplateFromValue(document.getElementById("broadcastTemplate")?.value);document.getElementById("broadcastFields").innerHTML=t?templateDynamicHtml(t,"audience"):"<div class='hint'>Select an approved template.</div>"}
 async function updateBroadcastCount(){
-  const mode=document.getElementById("broadcastAudience").value,value=document.getElementById("broadcastAudienceValue").value,language=document.getElementById("broadcastLanguage").value;
+  const mode=document.getElementById("broadcastAudience").value,values=getBroadcastSelectedValues(),language=document.getElementById("broadcastLanguage").value;
   let count=0;
-  if(mode==="label") count=contacts.filter(c=>(c.labels||[]).includes(value)&&(!language||String(c.language||"").toLowerCase()===language.toLowerCase())).length;
-  else count=leads.filter(l=>l.stage===value&&(!language||String(l.language||"").toLowerCase()===language.toLowerCase())).length;
+  if(mode==="label"){
+    const wanted=new Set(values);
+    count=new Set(contacts.filter(c=>(c.labels||[]).some(l=>wanted.has(l))&&(!language||String(c.language||"").toLowerCase()===language.toLowerCase())).map(c=>c.phone||c.wa_id)).size;
+  }else{
+    const value=values[0]||"";
+    count=leads.filter(l=>l.stage===value&&(!language||String(l.language||"").toLowerCase()===language.toLowerCase())).length;
+  }
   document.getElementById("broadcastAudienceCount").textContent=`${count} eligible contacts/leads`;
 }
 async function sendAudienceBroadcast(){
-  const mode=document.getElementById("broadcastAudience").value,value=document.getElementById("broadcastAudienceValue").value,language=document.getElementById("broadcastLanguage").value,t=getSelectedTemplateFromValue(document.getElementById("broadcastTemplate").value);
-  if(!value||!t)return toast("Select an audience and approved template");
+  const mode=document.getElementById("broadcastAudience").value,values=getBroadcastSelectedValues(),language=document.getElementById("broadcastLanguage").value,t=getSelectedTemplateFromValue(document.getElementById("broadcastTemplate").value);
+  if(!values.length||!t)return toast("Select an audience and approved template");
   try{
     const x=collectSenderData(t,"audience"),media=await ensureTemplateConfig(t,"audience");
     if(mode==="label"){
-      const audience=contacts.filter(c=>(c.labels||[]).includes(value)&&(!language||String(c.language||"").toLowerCase()===language.toLowerCase()));
-      const r=await api("/api/campaigns",{method:"POST",body:JSON.stringify({name:`Label · ${value}`,label:value,contactIds:audience.map(c=>c.id),templateName:t.name,language:t.language,action:"broadcast",delayMs:900,variablesByLead:Object.fromEntries(audience.map(c=>[c.id,c.variables||x.variables])),mediaUrl:media,buttonPayloads:x.buttonPayloads})});
+      const wanted=new Set(values);
+      const seen=new Set();
+      const audience=contacts.filter(c=>{
+        const phone=c.phone||c.wa_id||"";
+        if(!phone||seen.has(phone)||!(c.labels||[]).some(l=>wanted.has(l)))return false;
+        if(language&&String(c.language||"").toLowerCase()!==language.toLowerCase())return false;
+        seen.add(phone);return true;
+      });
+      if(!audience.length)return toast("No eligible contacts");
+      const r=await api("/api/campaigns",{method:"POST",body:JSON.stringify({name:`Labels · ${values.join(", ")}`,labels:values,contactIds:audience.map(c=>c.id),templateName:t.name,language:t.language,action:"broadcast",delayMs:900,variablesByLead:Object.fromEntries(audience.map(c=>[c.id,c.variables||x.variables])),mediaUrl:media,buttonPayloads:x.buttonPayloads})});
       toast(`Broadcast started for ${r.total} contacts`);
     }else{
+      const value=values[0];
       const audience=leads.filter(l=>l.stage===value&&(!language||String(l.language||"").toLowerCase()===language.toLowerCase()));
       if(!audience.length)return toast("No eligible leads");
       const action=audience.some(l=>!l.contactedAt)?"initial":(audience.some(l=>!l.followup1SentAt)?"followup1":(audience.some(l=>!l.followup2SentAt)?"followup2":"final"));
