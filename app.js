@@ -568,7 +568,7 @@ async function sendTemplateMessage({ to, name, language, components = [], leadId
   });
   return result;
 }
-async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", buttonPayloads = {}, buttonParameters = {}, action = "initial" }) {
+async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", buttonPayloads = {}, buttonParameters = {}, action = "initial", updateLeadStage = true }) {
   if (!template) throw new Error("Approved template is required.");
   const components = buildTemplateComponents(template, { variables, mediaUrl, buttonPayloads, buttonParameters });
   const result = await sendTemplateMessage({
@@ -581,9 +581,11 @@ async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", 
   });
   const messageId = result?.messages?.[0]?.id || null;
   const sentAt = now();
-  if (action === "initial") markContacted(lead, { messageId, templateName: template.name, sentAt }, true);
-  else if (action === "followup1") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
-  else if (action === "followup2") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
+  if (updateLeadStage) {
+    if (action === "initial") markContacted(lead, { messageId, templateName: template.name, sentAt }, true);
+    else if (action === "followup1") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
+    else if (action === "followup2") markContacted(lead, { messageId, templateName: template.name, sentAt }, false);
+  }
   return { result, messageId, sentAt, components };
 }
 
@@ -773,6 +775,19 @@ app.get("/api/contacts/labels",(req,res)=>{
   db.contacts.forEach(c=>(c.labels||[]).forEach(l=>counts[l]=(counts[l]||0)+1));
   res.json({data:Object.entries(counts).map(([name,count])=>({name,count}))});
 });
+app.delete("/api/contacts/labels",(req,res)=>{
+  const label=String(req.query?.name||req.body?.name||"").trim();
+  if(!label) return res.status(400).json({success:false,error:"Label name is required."});
+  let removed=0;
+  db.contacts.forEach(contact=>{
+    const before=Array.isArray(contact.labels)?contact.labels:[];
+    const after=before.filter(item=>String(item)!==label);
+    if(after.length!==before.length){contact.labels=after;contact.updatedAt=now();removed += before.length-after.length;}
+  });
+  saveDatabase();
+  addEvent("contact_label_deleted",{label,removed});
+  res.json({success:true,label,removed});
+});
 
 /* Generic lists */
 app.get("/api/lists",(req,res)=>res.json({data:db.lists.map(l=>({...l,contactCount:l.contactIds.length}))}));
@@ -878,7 +893,9 @@ function campaignRecipientSnapshot(recipient) {
     phone: cleanPhone(recipient?.phone || recipient?.wa_id || ""),
     name: recipient?.name || recipient?.profileName || "",
     language: recipient?.language || "",
-    variables: Array.isArray(recipient?.variables) ? recipient.variables : []
+    variables: Array.isArray(recipient?.variables) ? recipient.variables : [],
+    // Broadcasts should only move a lead to Contacted when this was not already a contacted lead.
+    shouldMarkContacted: recipient?.shouldMarkContacted !== false
   };
 }
 
@@ -916,7 +933,10 @@ async function runCampaign(campaign) {
         const mediaUrl = campaign.autoLanguage
           ? (getTemplateConfig(template).mediaUrl || campaign.mediaUrl || "")
           : (campaign.mediaUrl || getTemplateConfig(template).mediaUrl || "");
-        const action = campaign.action === "broadcast" ? "initial" : campaign.action;
+        const isBroadcast = campaign.action === "broadcast";
+        const action = isBroadcast
+          ? (recipient.shouldMarkContacted !== false ? "initial" : "broadcast")
+          : campaign.action;
         const sent = await sendLeadMessage({
           lead,
           template,
@@ -924,7 +944,8 @@ async function runCampaign(campaign) {
           mediaUrl,
           buttonPayloads: campaign.buttonPayloads || {},
           buttonParameters: campaign.buttonParameters || {},
-          action
+          action,
+          updateLeadStage: !isBroadcast || recipient.shouldMarkContacted !== false
         });
 
         campaign.sent = Number(campaign.sent || 0) + 1;
@@ -990,17 +1011,34 @@ function resumeRunningCampaigns() {
 app.get("/api/campaigns", (req,res)=>res.json({data:db.campaigns}));
 app.post("/api/campaigns", (req,res)=>{
   try {
-    const {name,leadIds,contactIds,listId,label,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
+    const {name,leadIds,contactIds,listId,label,labels,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
     const template=templateByKey(templateName,language);
     if(!template||String(template.status).toUpperCase()!=="APPROVED") return res.status(400).json({error:"An approved Meta template is required."});
 
     let recipients=[];
     if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
     else if(listId){const list=db.lists.find(l=>l.id===listId);if(!list)return res.status(404).json({error:"List not found"});recipients=db.contacts.filter(c=>list.contactIds.includes(c.id));}
+    else if(Array.isArray(labels) && labels.length){
+      const wanted=new Set(labels.map(x=>String(x||"").trim()).filter(Boolean));
+      const seen=new Set();
+      recipients=db.contacts.filter(c=>{
+        const phone=cleanPhone(c?.phone||c?.wa_id||"");
+        if(!phone || seen.has(phone)) return false;
+        const match=(c.labels||[]).some(item=>wanted.has(String(item)));
+        if(match) seen.add(phone);
+        return match;
+      });
+    }
     else if(label) recipients=db.contacts.filter(c=>(c.labels||[]).includes(label));
     else if(Array.isArray(contactIds)) recipients=contactIds.map(id=>db.contacts.find(c=>c.id===id)).filter(Boolean);
 
     recipients=recipients.filter(x=>x?.phone && !leadForPhone(x.phone)?.optOut && leadForPhone(x.phone)?.stage!==STAGES.JUNK);
+    if(action==="broadcast"){
+      recipients=recipients.map(recipient=>{
+        const existingLead=leadForPhone(recipient.phone);
+        return {...recipient,shouldMarkContacted:!existingLead || !existingLead.contactedAt};
+      });
+    }
     if(!recipients.length)return res.status(400).json({error:"No eligible contacts selected."});
 
     const campaign={
@@ -1120,7 +1158,11 @@ app.post("/webhook",(req,res)=>{
       const value=change.value||{};
       console.log(`[WEBHOOK CHANGE] field=${change.field||""} messages=${(value.messages||[]).length} statuses=${(value.statuses||[]).length}`);
       (value.messages||[]).forEach(m=>{ console.log(`[WEBHOOK INCOMING] from=${String(m.from||"").slice(-4)} type=${m.type} id=${m.id}`); handleIncomingMessage(m,value); });
-      (value.statuses||[]).forEach(s=>{ console.log(`[WEBHOOK STATUS] wamid=${s.id} status=${s.status} recipient=${String(s.recipient_id||"").slice(-4)}`); handleStatusUpdate(s); });
+      (value.statuses||[]).forEach(s=>{
+        console.log(`[WEBHOOK STATUS] wamid=${s.id} status=${s.status} recipient=${String(s.recipient_id||"").slice(-4)}`);
+        if(Array.isArray(s.errors) && s.errors.length) console.error(`[WEBHOOK ERROR] wamid=${s.id} ${JSON.stringify(s.errors)}`);
+        handleStatusUpdate(s);
+      });
     }));
   }catch(e){console.error("Webhook processing error:",e);}
 });
