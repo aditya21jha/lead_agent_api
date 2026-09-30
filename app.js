@@ -343,6 +343,7 @@ function markContacted(lead, messageMeta, isInitial = false) {
   saveDatabase();
 }
 function processLeadTimers() {
+  if (!db || !Array.isArray(db.leads)) return;
   const t = Date.now();
   for (const lead of db.leads) {
     if (lead.optOut || lead.stage === STAGES.JUNK || lead.stage === STAGES.PHOTO_RECEIVED || lead.stage === STAGES.WAITING_RESPONSE) continue;
@@ -354,8 +355,6 @@ function processLeadTimers() {
     }
   }
 }
-setInterval(processLeadTimers, 30000);
-processLeadTimers();
 
 function applyStatusToMessage(message, status) {
   if (!message || !status) return;
@@ -1182,10 +1181,14 @@ app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")))
 
 async function startServer() {
   db = await loadDatabase();
+  console.log(`[STARTUP] Database loaded: contacts=${db.contacts.length}, leads=${db.leads.length}, messages=${db.messages.length}`);
+  processLeadTimers();
+  setInterval(processLeadTimers, 30000);
   appReady = true;
   app.listen(PORT,"0.0.0.0",()=>{
     console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`);
     console.log(`Persistence: ${pgPool ? "PostgreSQL" : "local JSON fallback"}`);
+    console.log(`[STARTUP] Webhook: /webhook | Diagnostic: /api/diagnostics/whatsapp`);
     resumeRunningCampaigns();
   });
 }
