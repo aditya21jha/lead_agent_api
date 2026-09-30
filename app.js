@@ -39,10 +39,11 @@ const pgPool = DATABASE_URL
   : null;
 
 const DB_STATE_ID = "royal_hair_main";
-let db = structuredClone(defaultDatabase);
 let dbSaveTimer = null;
 let dbSaveInFlight = null;
 let dbSaveQueued = false;
+let appReady = false;
+let db;
 
 
 const STAGES = {
@@ -72,6 +73,7 @@ const defaultDatabase = {
   templates: [],
   templateConfigs: {},
   events: [],
+  pendingStatuses: {},
   leads: [],
   settings: {
     followup1Days: 1,
@@ -79,6 +81,8 @@ const defaultDatabase = {
   },
   connectedNumbers: []
 };
+
+db = structuredClone(defaultDatabase);
 
 function normalizeDatabase(data) {
   const source = data && typeof data === "object" ? data : {};
@@ -93,6 +97,7 @@ function normalizeDatabase(data) {
     templates: Array.isArray(source.templates) ? source.templates : [],
     templateConfigs: source.templateConfigs && typeof source.templateConfigs === "object" ? source.templateConfigs : {},
     events: Array.isArray(source.events) ? source.events : [],
+    pendingStatuses: source.pendingStatuses && typeof source.pendingStatuses === "object" ? source.pendingStatuses : {},
     leads: Array.isArray(source.leads) ? source.leads : [],
     settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}) },
     connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : []
@@ -355,6 +360,34 @@ function processLeadTimers() {
 setInterval(processLeadTimers, 30000);
 processLeadTimers();
 
+function applyStatusToMessage(message, status) {
+  if (!message || !status) return;
+  message.status = status.status || message.status || "sent";
+  message.statusTimestamp = status.timestamp
+    ? new Date(Number(status.timestamp) * 1000).toISOString()
+    : now();
+  message.statusErrors = status.errors || [];
+  message.statusRecipient = status.recipient_id || message.statusRecipient || null;
+}
+
+function applyPendingStatus(messageId) {
+  if (!messageId) return null;
+  const pending = db.pendingStatuses?.[messageId];
+  if (!pending) return null;
+  const message = db.messages.find(m => m.wamid === messageId);
+  if (!message) return null;
+  applyStatusToMessage(message, pending);
+  delete db.pendingStatuses[messageId];
+  db.campaigns.forEach(c => {
+    const result = c.results.find(x => x.messageId === messageId);
+    if (result) {
+      result.status = pending.status;
+      if (pending.status === "failed") result.error = pending.errors || [];
+    }
+  });
+  return pending;
+}
+
 function storeOutboundMessage({ to, messageId, type, text = "", templateName = null, templateLanguage = null, templateComponents = [], metaResponse = null, leadId = null, action = null }) {
   const phone = cleanPhone(to);
   upsertContact({ phone, wa_id: phone });
@@ -369,7 +402,7 @@ function storeOutboundMessage({ to, messageId, type, text = "", templateName = n
     templateName,
     templateLanguage,
     templateComponents,
-    status: "accepted",
+    status: "sent",
     timestamp: now(),
     metaResponse,
     leadId: leadId || null,
@@ -379,6 +412,7 @@ function storeOutboundMessage({ to, messageId, type, text = "", templateName = n
   conversation.lastMessage = text || `Template: ${templateName || ""}`;
   conversation.lastMessageAt = message.timestamp;
   conversation.lastDirection = "outbound";
+  applyPendingStatus(messageId);
   saveDatabase();
   return message;
 }
@@ -882,10 +916,16 @@ async function runCampaign(campaign) {
           contactId: recipient.id,
           leadId: lead?.id || null,
           phone: recipient.phone,
-          status: "accepted",
+          status: "sent",
           messageId: sent.messageId,
           timestamp: now()
         });
+        const pending = db.pendingStatuses?.[sent.messageId];
+        if (pending) {
+          campaign.results[campaign.results.length - 1].status = pending.status;
+          if (pending.status === "failed") campaign.results[campaign.results.length - 1].error = pending.errors || [];
+          delete db.pendingStatuses[sent.messageId];
+        }
       } catch (e) {
         campaign.failed = Number(campaign.failed || 0) + 1;
         campaign.results.push({
@@ -1061,13 +1101,20 @@ app.get("/webhook",(req,res)=>{
   return res.sendStatus(403);
 });
 app.post("/webhook",(req,res)=>{
+  // Acknowledge Meta immediately, then process the payload.
   res.sendStatus(200);
   try{
-    const body=req.body;if(body?.object!=="whatsapp_business_account")return;
+    const body=req.body;
+    console.log(`[WEBHOOK] ${new Date().toISOString()} object=${body?.object || "unknown"}`);
+    if(body?.object!=="whatsapp_business_account")return;
     (body.entry||[]).forEach(entry=>(entry.changes||[]).forEach(change=>{
       const value=change.value||{};
+      console.log(`[WEBHOOK CHANGE] field=${change.field || "unknown"} messages=${(value.messages||[]).length} statuses=${(value.statuses||[]).length}`);
       (value.messages||[]).forEach(m=>handleIncomingMessage(m,value));
-      (value.statuses||[]).forEach(handleStatusUpdate);
+      (value.statuses||[]).forEach(status=>{
+        console.log(`[WEBHOOK STATUS] wamid=${status?.id || "n/a"} status=${status?.status || "n/a"} recipient=***${String(status?.recipient_id || "").slice(-4)}`);
+        handleStatusUpdate(status);
+      });
     }));
   }catch(e){console.error("Webhook processing error:",e);}
 });
@@ -1097,10 +1144,33 @@ function handleIncomingMessage(message,value){
   saveDatabase();addEvent("incoming_message",{wa_id:phone,type:message.type,mediaId:media?.id||null});
 }
 function handleStatusUpdate(status){
+  if(!status?.id) return;
   const message=db.messages.find(m=>m.wamid===status.id);
-  if(message){message.status=status.status;message.statusTimestamp=status.timestamp?new Date(Number(status.timestamp)*1000).toISOString():now();message.statusErrors=status.errors||[];}
-  db.campaigns.forEach(c=>{const r=c.results.find(x=>x.messageId===status.id);if(r)r.status=status.status;});
-  saveDatabase();addEvent("message_status",{wamid:status.id,status:status.status,recipient:status.recipient_id});
+  if(message){
+    applyStatusToMessage(message,status);
+    db.campaigns.forEach(c=>{
+      const r=c.results.find(x=>x.messageId===status.id);
+      if(r){
+        r.status=status.status;
+        if(status.status==="failed") r.error=status.errors||[];
+      }
+    });
+  }else{
+    // Meta can deliver a status callback before our outbound record has
+    // finished being persisted. Keep the latest status and apply it when
+    // the outbound WAMID is stored.
+    db.pendingStatuses = db.pendingStatuses || {};
+    db.pendingStatuses[status.id] = {
+      id: status.id,
+      status: status.status,
+      timestamp: status.timestamp || null,
+      recipient_id: status.recipient_id || null,
+      errors: status.errors || []
+    };
+    console.log(`[WEBHOOK STATUS] queued pending status for wamid=${status.id}`);
+  }
+  saveDatabase();
+  addEvent("message_status",{wamid:status.id,status:status.status,recipient:status.recipient_id});
 }
 
 /* Dashboard */
