@@ -39,6 +39,7 @@ const pgPool = DATABASE_URL
   : null;
 
 const DB_STATE_ID = "royal_hair_main";
+let db = structuredClone(defaultDatabase);
 let dbSaveTimer = null;
 let dbSaveInFlight = null;
 let dbSaveQueued = false;
@@ -78,10 +79,6 @@ const defaultDatabase = {
   },
   connectedNumbers: []
 };
-
-// Runtime state. Initialize before timers/middleware can access it.
-let db = structuredClone(defaultDatabase);
-let appReady = false;
 
 function normalizeDatabase(data) {
   const source = data && typeof data === "object" ? data : {};
@@ -227,29 +224,19 @@ function getConversation(phone) {
   }
   return db.conversations[normalized];
 }
-async function metaRequest(endpoint, options = {}) {
+function metaRequest(endpoint, options = {}) {
   if (!WHATSAPP_TOKEN) throw new Error("WHATSAPP_TOKEN is not configured.");
-  let requestBody = null;
-  try { requestBody = options.body ? JSON.parse(options.body) : null; } catch {}
-  const recipient = requestBody?.to || requestBody?.recipient?.to || null;
-  const safeRecipient = recipient ? `***${String(recipient).slice(-4)}` : "n/a";
-  console.log(`[META SEND] ${new Date().toISOString()} ${options.method || "GET"} ${endpoint} recipient=${safeRecipient}`);
-  if (requestBody?.type === "template") {
-    console.log(`[META SEND] template=${requestBody.template?.name || "n/a"} language=${requestBody.template?.language?.code || "n/a"}`);
-  }
-  try {
-    const response = await fetch(`${GRAPH_URL}${endpoint}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      }
-    });
+  return fetch(`${GRAPH_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    }
+  }).then(async response => {
     const text = await response.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    console.log(`[META RESPONSE] HTTP ${response.status} ok=${response.ok} ${JSON.stringify(data)}`);
     if (!response.ok) {
       const error = new Error(data?.error?.message || data?.message || "Meta API request failed");
       error.status = response.status;
@@ -257,10 +244,7 @@ async function metaRequest(endpoint, options = {}) {
       throw error;
     }
     return data;
-  } catch (error) {
-    console.error(`[META REQUEST ERROR] ${error.message}`, error.meta || "");
-    throw error;
-  }
+  });
 }
 function stageColor(stage) { return STAGE_META[stage]?.color || "#64748b"; }
 function addDays(iso, days) {
@@ -368,7 +352,8 @@ function processLeadTimers() {
     }
   }
 }
-// Lead timers are started after the database has been loaded in startServer().
+setInterval(processLeadTimers, 30000);
+processLeadTimers();
 
 function storeOutboundMessage({ to, messageId, type, text = "", templateName = null, templateLanguage = null, templateComponents = [], metaResponse = null, leadId = null, action = null }) {
   const phone = cleanPhone(to);
@@ -384,7 +369,7 @@ function storeOutboundMessage({ to, messageId, type, text = "", templateName = n
     templateName,
     templateLanguage,
     templateComponents,
-    status: "sent",
+    status: "accepted",
     timestamp: now(),
     metaResponse,
     leadId: leadId || null,
@@ -897,7 +882,7 @@ async function runCampaign(campaign) {
           contactId: recipient.id,
           leadId: lead?.id || null,
           phone: recipient.phone,
-          status: "sent",
+          status: "accepted",
           messageId: sent.messageId,
           timestamp: now()
         });
@@ -1078,17 +1063,11 @@ app.get("/webhook",(req,res)=>{
 app.post("/webhook",(req,res)=>{
   res.sendStatus(200);
   try{
-    const body=req.body;
-    console.log(`[WEBHOOK] ${new Date().toISOString()} object=${body?.object || "unknown"}`);
-    if(body?.object!=="whatsapp_business_account")return;
+    const body=req.body;if(body?.object!=="whatsapp_business_account")return;
     (body.entry||[]).forEach(entry=>(entry.changes||[]).forEach(change=>{
       const value=change.value||{};
-      console.log(`[WEBHOOK CHANGE] field=${change.field || "unknown"} messages=${(value.messages||[]).length} statuses=${(value.statuses||[]).length}`);
       (value.messages||[]).forEach(m=>handleIncomingMessage(m,value));
-      (value.statuses||[]).forEach(status=>{
-        console.log(`[WEBHOOK STATUS] wamid=${status?.id || "n/a"} status=${status?.status || "n/a"} recipient=***${String(status?.recipient_id || "").slice(-4)}`);
-        handleStatusUpdate(status);
-      });
+      (value.statuses||[]).forEach(handleStatusUpdate);
     }));
   }catch(e){console.error("Webhook processing error:",e);}
 });
@@ -1145,8 +1124,6 @@ app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")))
 
 async function startServer() {
   db = await loadDatabase();
-  processLeadTimers();
-  setInterval(processLeadTimers, 30000);
   appReady = true;
   app.listen(PORT,"0.0.0.0",()=>{
     console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`);
