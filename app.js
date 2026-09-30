@@ -219,6 +219,7 @@ function getConversation(phone) {
       wa_id: normalized,
       unread: 0,
       lastIncomingAt: null,
+      lastIncomingId: null,
       lastMessageAt: null,
       lastMessage: "",
       lastDirection: null
@@ -1138,7 +1139,7 @@ function handleIncomingMessage(message,value){
   } else text=`[${message.type||"message"}]`;
   const timestamp=message.timestamp?new Date(Number(message.timestamp)*1000).toISOString():now();
   db.messages.push({id:makeId("msg"),wamid:message.id,wa_id:phone,direction:"inbound",type:message.type||"unknown",text,media,raw:message,status:"received",timestamp});
-  conversation.unread=Number(conversation.unread||0)+1;conversation.lastIncomingAt=timestamp;conversation.lastMessageAt=timestamp;conversation.lastMessage=text;conversation.lastDirection="inbound";
+  conversation.unread=Number(conversation.unread||0)+1;conversation.lastIncomingAt=timestamp;conversation.lastIncomingId=message.id||makeId("in");conversation.lastMessageAt=timestamp;conversation.lastMessage=text;conversation.lastDirection="inbound";
   const lead=leadForPhone(phone);
   const lower=text.toLowerCase();
   if(/^(stop|remove|unsubscribe|not interested|no thanks)\b/.test(lower)||lower.includes("not interested")){
