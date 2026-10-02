@@ -198,7 +198,8 @@ input,select,textarea{width:100%;border:1px solid rgba(20,70,100,.12);background
     <div class="card"><h3>WhatsApp connection</h3><div class="hint">Phone Number ID</div><b id="settingsPhone">—</b><div class="hint" style="margin-top:10px">WABA ID</div><b id="settingsWaba">—</b><div class="hint" style="margin-top:10px">Graph API</div><b id="settingsVersion">—</b><div class="hint" style="margin-top:10px">Status</div><b id="settingsStatus">Checking…</b></div>
     <div class="card"><h3>Follow-up sequence</h3><div class="form-grid"><div class="field"><label>Follow-up 1 after initial (days)</label><input id="fu1Days" type="number" min="1"></div><div class="field"><label>Follow-up 2 after Follow-up 1 (days)</label><input id="fu2Days" type="number" min="1"></div></div><button class="btn btn-primary" onclick="saveFollowupSettings()">Save sequence</button><p class="hint">Changing these values affects future scheduling; existing due dates remain stored on each lead.</p></div>
   </div>
-  <div class="card" style="margin-top:16px"><h3>WhatsApp Connection Diagnostic</h3><p class="hint">Checks the Meta token, Phone Number ID, WABA subscription and recent webhook activity.</p><button class="btn btn-primary" onclick="runWhatsAppDiagnostic()">Run diagnostic</button><pre id="whatsappDiagnostic" style="margin-top:12px;white-space:pre-wrap;font-size:10px;color:#5f7480;background:#f2f8fa;padding:12px;border-radius:12px">Not checked yet.</pre></div>
+  <div class="card" style="margin-top:16px"><h3>WhatsApp Business App Coexistence</h3><p class="hint">Connect the existing WhatsApp Business app number to Meta Cloud API while keeping the same number active in the Business app. This launches Meta Embedded Signup; it does not deregister the number.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" onclick="launchCoexistenceSignup()">Connect existing WhatsApp Business number</button><button class="btn btn-light" onclick="runWhatsAppDiagnostic()">Check number status</button></div><pre id="coexistenceStatus" style="margin-top:12px;white-space:pre-wrap;font-size:10px;color:#5f7480;background:#f2f8fa;padding:12px;border-radius:12px">Ready. Before starting, keep the phone with WhatsApp Business installed nearby.</pre><p class="hint" style="margin-top:10px">Important: do not use the normal “register number” API flow and do not delete/deregister the number. Coexistence must be completed through Meta's Business App onboarding flow.</p></div>
+  <div class="card" style="margin-top:16px"><h3>WhatsApp Connection Diagnostic</h3><p class="hint">Checks the Meta token, Phone Number ID, WABA subscription, coexistence fields and recent webhook activity.</p><button class="btn btn-primary" onclick="runWhatsAppDiagnostic()">Run diagnostic</button><pre id="whatsappDiagnostic" style="margin-top:12px;white-space:pre-wrap;font-size:10px;color:#5f7480;background:#f2f8fa;padding:12px;border-radius:12px">Not checked yet.</pre></div>
   <div class="card" style="margin-top:16px"><h3>Webhook</h3><p class="hint">Use this URL in Meta Developer settings.</p><input readonly id="webhookUrl"></div>
 </section>
 </div>
@@ -214,6 +215,49 @@ input,select,textarea{width:100%;border:1px solid rgba(20,70,100,.12);background
 </div>
 
 <script>
+window.RH_META_APP_ID = "1053882190855142";
+window.RH_META_CONFIG_ID = "4024484364348303";
+window.fbAsyncInit = function(){
+  if(!window.FB) return;
+  FB.init({appId:RH_META_APP_ID,cookie:true,xfbml:true,version:"v26.0"});
+  window.rhFbReady=true;
+};
+(function(d,s,id){if(d.getElementById(id))return;const fjs=d.getElementsByTagName(s)[0],js=d.createElement(s);js.id=id;js.src="https://connect.facebook.net/en_US/sdk.js";fjs.parentNode.insertBefore(js,fjs);})(document,"script","facebook-jssdk");
+
+function rhSignupSessionListener(event){
+  if(event.origin!=="https://www.facebook.com") return;
+  let data; try{data=typeof event.data==="string"?JSON.parse(event.data):event.data}catch{return;}
+  if(!data||data.type!=="WA_EMBEDDED_SIGNUP") return;
+  const out=document.getElementById("coexistenceStatus");
+  if(out) out.textContent=`Meta event: ${data.event||"unknown"}\n${JSON.stringify(data.data||{},null,2)}`;
+  if(data.event==="FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"){
+    const waba=data.data?.waba_id||null;
+    if(out) out.textContent=`Coexistence onboarding completed in Meta.\nWABA: ${waba||"not returned"}\n\nNow run the diagnostic below to verify the phone state.`;
+    runWhatsAppDiagnostic();
+  }
+}
+window.addEventListener("message",rhSignupSessionListener);
+
+function launchCoexistenceSignup(){
+  const out=document.getElementById("coexistenceStatus");
+  if(!window.FB){ if(out)out.textContent="Meta Login SDK is still loading. Please wait a few seconds and try again."; return; }
+  if(out)out.textContent="Opening Meta Embedded Signup… Keep the WhatsApp Business phone nearby and complete every step.";
+  FB.login(function(response){
+    if(response?.authResponse?.code){
+      const code=response.authResponse.code;
+      if(out)out.textContent="Meta returned the authorization code. Completing the server-side exchange…";
+      api("/api/coexistence/exchange-code",{method:"POST",body:JSON.stringify({code})})
+        .then(r=>{if(out)out.textContent=`${r.message||"Embedded Signup completed."}\n\n${JSON.stringify(r.debug||{},null,2)}`;runWhatsAppDiagnostic();})
+        .catch(e=>{if(out)out.textContent=`Signup exchange failed: ${e.message}`;});
+    }else if(out){out.textContent=`Meta signup was cancelled or did not complete.\n${JSON.stringify(response||{},null,2)}`;}
+  },{
+    config_id:RH_META_CONFIG_ID,
+    response_type:"code",
+    override_default_response_type:true,
+    extras:{setup:{},featureType:"whatsapp_business_app_onboarding",sessionInfoVersion:"3"}
+  });
+}
+
 const STAGES=["Contacted","Pending for Follow-up","Follow-up Done","Waiting for Response","Photo Received","Junk"];
 const STAGE_COLORS={"Contacted":"#3b82f6","Pending for Follow-up":"#f59e0b","Follow-up Done":"#8b5cf6","Waiting for Response":"#10b981","Photo Received":"#0f9aa8","Junk":"#dc3545"};
 const BITRIX_LANGUAGE_NAMES={"45":"English","221":"Italiano","215":"Français","217":"Español","209":"Română","223":"Deutsch","49":"Русский","213":"Türkçe","211":"Polski","47":"Português","7103":"Ελληνικά","7119":"Bosnian","10309":"Bulgarian"};
