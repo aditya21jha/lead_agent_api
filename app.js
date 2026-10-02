@@ -21,9 +21,6 @@ app.use((req, res, next) => {
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const META_APP_ID = process.env.META_APP_ID || process.env.FACEBOOK_APP_ID || "";
-const META_APP_SECRET = process.env.META_APP_SECRET || process.env.FACEBOOK_APP_SECRET || "";
-const META_CONFIG_ID = process.env.META_CONFIG_ID || "4024484364348303";
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const WABA_ID = process.env.WABA_ID;
 const BITRIX_WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
@@ -603,13 +600,13 @@ app.get("/api/config", (req,res) => res.json({
 }));
 
 app.get("/api/diagnostics/whatsapp", async (req,res) => {
-  const result = { timestamp: now(), config: { token: !!WHATSAPP_TOKEN, phoneNumberId: !!PHONE_NUMBER_ID, wabaId: !!WABA_ID, graphApiVersion: GRAPH_API_VERSION, embeddedSignup: { appId: !!META_APP_ID, appSecret: !!META_APP_SECRET, configId: META_CONFIG_ID || null } }, checks: {} };
+  const result = { timestamp: now(), config: { token: !!WHATSAPP_TOKEN, phoneNumberId: !!PHONE_NUMBER_ID, wabaId: !!WABA_ID, graphApiVersion: GRAPH_API_VERSION }, checks: {} };
   try {
     const me = await metaRequest(`/me`);
     result.checks.token = { ok: true, id: me?.id || null, name: me?.name || null };
   } catch (e) { result.checks.token = { ok: false, error: e.message, meta: e.meta || null }; }
   try {
-    const phone = await metaRequest(`/${PHONE_NUMBER_ID}?fields=id,display_phone_number,verified_name,quality_rating,status,is_on_biz_app,platform_type,code_verification_status,is_pin_enabled,last_onboarded_time`);
+    const phone = await metaRequest(`/${PHONE_NUMBER_ID}?fields=id,display_phone_number,verified_name,quality_rating,status`);
     result.checks.phoneNumber = { ok: true, data: phone };
   } catch (e) { result.checks.phoneNumber = { ok: false, error: e.message, meta: e.meta || null }; }
   try {
@@ -620,46 +617,6 @@ app.get("/api/diagnostics/whatsapp", async (req,res) => {
   result.recentEvents = db.events.slice(0, 25).filter(e => ["incoming_message","message_status","webhook"].includes(e.type));
   result.recentMessages = db.messages.slice(-25).reverse().map(m => ({ wamid:m.wamid, direction:m.direction, type:m.type, wa_id:m.wa_id, status:m.status, timestamp:m.timestamp, text:m.text }));
   res.json(result);
-});
-
-/* WhatsApp Business App Coexistence / Embedded Signup */
-app.post("/api/coexistence/exchange-code", async (req,res) => {
-  try {
-    const code = String(req.body?.code || "").trim();
-    if (!code) return res.status(400).json({ ok:false, error:"Embedded Signup authorization code is required." });
-    if (!META_APP_ID || !META_APP_SECRET) return res.status(500).json({ ok:false, error:"META_APP_ID and META_APP_SECRET must be configured on the server before completing Embedded Signup." });
-
-    const response = await fetch(`${GRAPH_URL}/oauth/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: META_APP_ID,
-        client_secret: META_APP_SECRET,
-        code,
-        grant_type: "authorization_code"
-      })
-    });
-    const text = await response.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw:text }; }
-    if (!response.ok || !data?.access_token) {
-      const error = new Error(data?.error?.message || data?.message || "Meta Embedded Signup code exchange failed.");
-      error.status = response.status || 500;
-      error.meta = data;
-      throw error;
-    }
-
-    let debug = null;
-    try {
-      const user = await fetch(`${GRAPH_URL}/me?fields=id,name`, { headers:{ Authorization:`Bearer ${data.access_token}` } }).then(async r=>{ const t=await r.text(); let x; try{x=JSON.parse(t)}catch{x={raw:t}}; if(!r.ok) throw new Error(x?.error?.message||"Token validation failed"); return x; });
-      debug = { userId:user?.id||null, userName:user?.name||null };
-    } catch (e) { debug = { error:e.message }; }
-
-    addEvent("coexistence_signup_completed", { appId:META_APP_ID, configId:META_CONFIG_ID, tokenReceived:true, debug });
-    res.json({ ok:true, message:"Meta Embedded Signup code exchanged successfully. Do not expose the returned token; it is intentionally not sent to the browser.", debug, expectedWabaId:WABA_ID || null });
-  } catch (e) {
-    res.status(e.status || 500).json({ ok:false, error:e.message, meta:e.meta||null });
-  }
 });
 
 /* Countries */
@@ -1263,7 +1220,6 @@ app.get("/api/numbers",(req,res)=>res.json({data:db.connectedNumbers,active:proc
 app.post("/api/numbers",(req,res)=>{const {number,label}=req.body||{};if(!number)return res.status(400).json({error:"Number is required"});const item={id:makeId("number"),number:String(number),label:String(label||"WhatsApp Number"),createdAt:now()};db.connectedNumbers.push(item);saveDatabase();res.json({success:true,data:item});});
 
 /* Root */
-app.get("/privacy-policy",(req,res)=>res.sendFile(path.join(__dirname,"public","privacy-policy.html")));
 app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
 
 async function startServer() {
