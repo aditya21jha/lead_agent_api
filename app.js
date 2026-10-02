@@ -1263,6 +1263,7 @@ app.get("/api/numbers",(req,res)=>res.json({data:db.connectedNumbers,active:proc
 app.post("/api/numbers",(req,res)=>{const {number,label}=req.body||{};if(!number)return res.status(400).json({error:"Number is required"});const item={id:makeId("number"),number:String(number),label:String(label||"WhatsApp Number"),createdAt:now()};db.connectedNumbers.push(item);saveDatabase();res.json({success:true,data:item});});
 
 /* Root */
+app.get("/privacy-policy",(req,res)=>res.sendFile(path.join(__dirname,"public","privacy-policy.html")));
 app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
 
 async function startServer() {
