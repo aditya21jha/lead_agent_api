@@ -228,6 +228,10 @@ body:has(#section-inbox.active){
 .lead-360-head{display:flex;align-items:center;gap:12px}.lead-360-avatar{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px;background:linear-gradient(145deg,#1769aa,#55c5d4)}.lead-360-title{font-size:16px;font-weight:800}.lead-360-sub{font-size:10px;color:#7c8f9a;margin-top:3px}.lead-360-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.lead-info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:15px}.lead-info-box{padding:10px;border-radius:12px;background:#f0f7f9}.lead-info-box b{display:block;font-size:8px;color:#80929d;text-transform:uppercase;letter-spacing:.4px}.lead-info-box span{display:block;font-size:10px;font-weight:700;margin-top:4px;word-break:break-word}.lead-360-section{margin-top:16px}.lead-360-section h4{margin:0 0 9px;font-size:12px}.photo-state{display:flex;align-items:center;gap:9px;padding:11px;border-radius:13px;background:#f1f8f9}.photo-state strong{font-size:10px}.photo-state span{display:block;font-size:9px;color:#7b8e98;margin-top:2px}.lead-timeline{display:grid;gap:0}.lead-timeline-item{position:relative;padding:0 0 14px 20px;border-left:2px solid #dbe9ee}.lead-timeline-item:last-child{border-left-color:transparent}.lead-timeline-item:before{content:"";position:absolute;left:-5px;top:2px;width:8px;height:8px;border-radius:50%;background:#1769aa}.lead-timeline-item b{font-size:10px}.lead-timeline-item span{display:block;font-size:8px;color:#80919b;margin-top:3px}.lead-score{display:flex;align-items:center;gap:10px}.lead-score-track{flex:1;height:8px;background:#e5eef1;border-radius:99px;overflow:hidden}.lead-score-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#f59e0b,#20a873)}
 @media(max-width:1050px){.dashboard-v2{grid-template-columns:1fr}.funnel-row{grid-template-columns:120px 1fr 40px}}
 @media(max-width:700px){.lead-info-grid{grid-template-columns:1fr}.dashboard-v2{gap:12px}}
+.number-btn.number-online{border-color:rgba(32,168,115,.28);box-shadow:0 5px 18px rgba(32,168,115,.10)}
+.number-btn.number-offline{border-color:rgba(220,79,97,.28)}
+.number-health{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border-bottom:1px solid rgba(20,70,100,.08)}
+.number-health b{display:block;font-size:11px}.number-health span{display:block;font-size:9px;color:#7a8e9a;margin-top:3px}.number-details{padding:9px 12px;font-size:9px;line-height:1.6;color:#718897;background:rgba(238,247,251,.55);border-bottom:1px solid rgba(20,70,100,.08);word-break:break-all}
 </style>
 </head>
 <body>
@@ -548,7 +552,25 @@ async function loadActivity(){try{const d=await api("/api/events");document.getE
 async function runWhatsAppDiagnostic(){try{const el=document.getElementById("whatsappDiagnostic");el.textContent="Running…";const d=await api("/api/diagnostics/whatsapp");el.textContent=JSON.stringify(d,null,2)}catch(e){document.getElementById("whatsappDiagnostic").textContent=`Diagnostic failed: ${e.message}`}}
 async function loadSettings(){try{const c=await api("/api/config"),s=await api("/api/settings/followups");document.getElementById("settingsPhone").textContent=c.phoneNumberId||"Not configured";document.getElementById("settingsWaba").textContent=c.wabaId||"Not configured";document.getElementById("settingsVersion").textContent=c.graphApiVersion||"—";document.getElementById("settingsStatus").textContent=c.configured?"Connected":"Incomplete";document.getElementById("webhookUrl").value=location.origin+"/webhook";document.getElementById("fu1Days").value=s.data.followup1Days;document.getElementById("fu2Days").value=s.data.followup2Days;}catch(e){toast(e.message,true)}}
 async function saveFollowupSettings(){try{const r=await api("/api/settings/followups",{method:"POST",body:JSON.stringify({followup1Days:document.getElementById("fu1Days").value,followup2Days:document.getElementById("fu2Days").value})});toast(`Sequence saved: +${r.data.followup1Days}d / +${r.data.followup2Days}d`)}catch(e){toast(e.message,true)}}
-async function loadNumbers(){try{const d=await api("/api/numbers");document.getElementById("connectedNumber").textContent=d.active||d.data?.[0]?.number||"Number not configured";document.getElementById("numberMenuList").innerHTML=(d.data||[]).map(n=>`<button onclick="selectNumber('${esc(n.number)}')">🟢 ${esc(n.number)}<br><span class="hint">${esc(n.label)}</span></button>`).join("")||`<div class="hint" style="padding:10px">No additional numbers configured.</div>`}catch(e){}}
+async function loadNumbers(){
+  try{
+    const [d,c]=await Promise.all([api("/api/numbers"),api("/api/config")]);
+    const configured=Boolean(c.configured);
+    const status=String(c.whatsappStatus||"").toUpperCase();
+    const liveNumber=c.displayPhoneNumber||c.connectedNumber||d.active||d.data?.[0]?.number||"";
+    const ok=configured && status==="CONNECTED";
+    const label=ok ? `${liveNumber} · Connected` : (liveNumber ? `${liveNumber} · ${status||"Not connected"}` : "Number not configured");
+    document.getElementById("connectedNumber").textContent=label;
+    const dot=document.querySelector("#numberPicker .number-btn");
+    if(dot){dot.classList.toggle("number-online",ok);dot.classList.toggle("number-offline",!ok);}
+    document.getElementById("numberMenuList").innerHTML=`<div class="number-health">
+      <div><b>${esc(c.verifiedName||"Royal Hair WhatsApp")}</b><span>${esc(liveNumber||"No number")}</span></div>
+      <span class="badge ${ok?"badge-green":"badge-red"}">${esc(status||"NOT CONFIGURED")}</span>
+    </div>
+    <div class="number-details">Phone ID: ${esc(c.phoneNumberId||"—")}<br>WABA: ${esc(c.wabaId||"—")}<br>Platform: ${esc(c.platformType||"—")}</div>
+    ${(d.data||[]).map(n=>`<button onclick="selectNumber('${esc(n.number)}')">🟢 ${esc(n.number)}<br><span class="hint">${esc(n.label)}</span></button>`).join("")||`<div class="hint" style="padding:10px">No additional numbers configured.</div>`}`;
+  }catch(e){document.getElementById("connectedNumber").textContent="Number status unavailable";}
+}
 function selectNumber(n){document.getElementById("connectedNumber").textContent=n;document.getElementById("numberPicker").classList.remove("open");toast("Number selected in the interface. API switching will be connected during Coexistence setup.")}
 function openAddNumber(){openModal("Add WhatsApp number",`<div class="field"><label>Phone number</label><input id="newNumber" placeholder="+90…"></div><div class="field"><label>Label</label><input id="newNumberLabel" placeholder="Royal Hair Production"></div><button class="btn btn-primary" onclick="addNumber()">Save number</button>`)}
 async function addNumber(){try{await api("/api/numbers",{method:"POST",body:JSON.stringify({number:document.getElementById("newNumber").value,label:document.getElementById("newNumberLabel").value})});closeModal();loadNumbers();toast("Number saved to the selector")}catch(e){toast(e.message,true)}}
