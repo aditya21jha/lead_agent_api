@@ -51,7 +51,8 @@ let db;
 
 const STAGES = {
   CONTACTED: "Contacted",
-  PENDING_FOLLOWUP: "Pending for Follow-up",
+  PENDING_FOLLOWUP_1: "Pending for Follow-up 1",
+  PENDING_FOLLOWUP_2: "Pending for Follow-up 2",
   FOLLOWUP_DONE: "Follow-up Done",
   WAITING_RESPONSE: "Waiting for Response",
   PHOTO_RECEIVED: "Photo Received",
@@ -60,7 +61,8 @@ const STAGES = {
 
 const STAGE_META = {
   [STAGES.CONTACTED]: { color: "#3b82f6", tone: "blue" },
-  [STAGES.PENDING_FOLLOWUP]: { color: "#f59e0b", tone: "orange" },
+  [STAGES.PENDING_FOLLOWUP_1]: { color: "#f59e0b", tone: "orange" },
+  [STAGES.PENDING_FOLLOWUP_2]: { color: "#f97316", tone: "orange" },
   [STAGES.FOLLOWUP_DONE]: { color: "#8b5cf6", tone: "purple" },
   [STAGES.WAITING_RESPONSE]: { color: "#10b981", tone: "green" },
   [STAGES.PHOTO_RECEIVED]: { color: "#0f9aa8", tone: "teal" },
@@ -94,6 +96,13 @@ const defaultDatabase = {
 
 function normalizeDatabase(data) {
   const source = data && typeof data === "object" ? data : {};
+  const normalizedLeads = (Array.isArray(source.leads) ? source.leads : []).map(lead => {
+    const copy = { ...lead };
+    if (copy.stage === "Pending for Follow-up") {
+      copy.stage = copy.followup1SentAt ? "Pending for Follow-up 2" : "Pending for Follow-up 1";
+    }
+    return copy;
+  });
   return {
     ...structuredClone(defaultDatabase),
     ...source,
@@ -105,7 +114,7 @@ function normalizeDatabase(data) {
     templates: Array.isArray(source.templates) ? source.templates : [],
     templateConfigs: source.templateConfigs && typeof source.templateConfigs === "object" ? source.templateConfigs : {},
     events: Array.isArray(source.events) ? source.events : [],
-    leads: Array.isArray(source.leads) ? source.leads : [],
+    leads: normalizedLeads,
     settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}), followupTemplateMap: (source.settings && source.settings.followupTemplateMap && typeof source.settings.followupTemplateMap === "object") ? source.settings.followupTemplateMap : {} },
     connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : [],
     agents: Array.isArray(source.agents) ? source.agents : [],
@@ -451,7 +460,7 @@ async function processLeadTimers() {
     leadFollowupWorkers.add(lead.id);
     try {
       const action = followup1Due ? "followup1" : "followup2";
-      setLeadStage(lead, STAGES.PENDING_FOLLOWUP, action === "followup1" ? "followup_1_due" : "followup_2_due");
+      setLeadStage(lead, action === "followup1" ? STAGES.PENDING_FOLLOWUP_1 : STAGES.PENDING_FOLLOWUP_2, action === "followup1" ? "followup_1_due" : "followup_2_due");
       await sendAutomaticFollowup(lead, action);
     } finally {
       leadFollowupWorkers.delete(lead.id);
@@ -470,8 +479,8 @@ function rollbackFailedAutomaticFollowup(message, status){
   if(!message || String(status?.status||"").toLowerCase()!=="failed" || !message.leadId || !["followup1","followup2"].includes(message.action)) return;
   const lead=db.leads.find(l=>String(l.id)===String(message.leadId));
   if(!lead || lead.optOut || lead.stage===STAGES.JUNK || lead.stage===STAGES.PHOTO_RECEIVED) return;
-  if(message.action==="followup1"){lead.followup1SentAt=null;lead.followup2DueAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP,"followup_1_delivery_failed");}
-  else {lead.followup2SentAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP,"followup_2_delivery_failed");}
+  if(message.action==="followup1"){lead.followup1SentAt=null;lead.followup2DueAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP_1,"followup_1_delivery_failed");}
+  else {lead.followup2SentAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP_2,"followup_2_delivery_failed");}
   addEvent("automatic_followup_delivery_failed",{leadId:lead.id,phone:lead.phone,action:message.action,errors:status?.errors||[]});
 }
 function applyPendingStatus(messageId) {
@@ -1338,7 +1347,7 @@ function handleIncomingMessage(message,value){
     if(lead){lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"customer_opt_out");}
   } else if(media&&["image","video"].includes(message.type)){
     if(lead)setLeadStage(lead,STAGES.PHOTO_RECEIVED,"photo_received");
-  } else if(lead && lead.contactedAt && !lead.optOut && [STAGES.CONTACTED,STAGES.PENDING_FOLLOWUP,STAGES.FOLLOWUP_DONE].includes(lead.stage)){
+  } else if(lead && lead.contactedAt && !lead.optOut && [STAGES.CONTACTED,STAGES.PENDING_FOLLOWUP_1,STAGES.PENDING_FOLLOWUP_2,STAGES.FOLLOWUP_DONE].includes(lead.stage)){
     setLeadStage(lead,STAGES.WAITING_RESPONSE,"customer_replied");
     addEvent("followup_sequence_stopped",{leadId:lead.id,phone:lead.phone,reason:"customer_replied"});
   }

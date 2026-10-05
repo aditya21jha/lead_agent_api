@@ -26,3 +26,6 @@ If a language/follow-up mapping is missing, or the mapped template is not approv
 5. Click **Save sequence & mappings**.
 
 Do not select a generic/free-message template. The automation requires an approved WhatsApp template.
+
+
+UI update: Settings is now accessible from a visible top-bar button and the left sidebar is independently scrollable. Follow-up stages are split into "Pending for Follow-up 1" and "Pending for Follow-up 2". Existing leads using the old "Pending for Follow-up" stage are migrated on startup based on whether Follow-up 1 has already been sent.
