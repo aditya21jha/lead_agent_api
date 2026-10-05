@@ -79,7 +79,10 @@ const defaultDatabase = {
   leads: [],
   settings: {
     followup1Days: 1,
-    followup2Days: 3
+    followup2Days: 3,
+    followup1TemplateName: null,
+    followup2TemplateName: null,
+    followupTemplateMap: {}
   },
   connectedNumbers: [],
   pendingStatuses: {},
@@ -103,7 +106,7 @@ function normalizeDatabase(data) {
     templateConfigs: source.templateConfigs && typeof source.templateConfigs === "object" ? source.templateConfigs : {},
     events: Array.isArray(source.events) ? source.events : [],
     leads: Array.isArray(source.leads) ? source.leads : [],
-    settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}) },
+    settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}), followupTemplateMap: (source.settings && source.settings.followupTemplateMap && typeof source.settings.followupTemplateMap === "object") ? source.settings.followupTemplateMap : {} },
     connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : [],
     agents: Array.isArray(source.agents) ? source.agents : [],
     assignments: Array.isArray(source.assignments) ? source.assignments : [],
@@ -239,6 +242,33 @@ function getConversation(phone) {
   }
   return db.conversations[normalized];
 }
+function getMessagingWindow(phone) {
+  const normalized = cleanPhone(phone);
+  const conversation = db.conversations[normalized];
+  const lastIncomingAt = conversation?.lastIncomingAt ? new Date(conversation.lastIncomingAt) : null;
+  const valid = !!lastIncomingAt && !Number.isNaN(lastIncomingAt.getTime());
+  const windowExpiresAt = valid ? new Date(lastIncomingAt.getTime() + 24 * 60 * 60 * 1000) : null;
+  const open = !!windowExpiresAt && windowExpiresAt.getTime() > Date.now();
+  return {
+    open,
+    lastIncomingAt: valid ? lastIncomingAt.toISOString() : null,
+    windowExpiresAt: windowExpiresAt ? windowExpiresAt.toISOString() : null,
+    requiresTemplate: !open
+  };
+}
+function assertMessagingWindow(phone) {
+  const window = getMessagingWindow(phone);
+  if (!window.open) {
+    const err = new Error('The customer service window is closed. Send an approved WhatsApp template to re-engage this customer.');
+    err.status = 409;
+    err.code = 131047;
+    err.errorCode = '131047';
+    err.window = window;
+    throw err;
+  }
+  return window;
+}
+
 function metaRequest(endpoint, options = {}) {
   if (!WHATSAPP_TOKEN) throw new Error("WHATSAPP_TOKEN is not configured.");
   return fetch(`${GRAPH_URL}${endpoint}`, {
@@ -335,6 +365,58 @@ function scheduleAfterFollowup1(lead, sentAt) {
 function scheduleAfterFollowup2(lead, sentAt) {
   lead.followup2SentAt = sentAt;
 }
+
+const leadFollowupWorkers = new Set();
+function normalizeTemplateLanguageForLead(value) {
+  return normalizeLanguageName(value);
+}
+function getLeadLanguageKey(language) {
+  return normalizeLanguageName(language || "");
+}
+function getFollowupTemplateMapping(action, language) {
+  const key = getLeadLanguageKey(language);
+  const map = db.settings.followupTemplateMap && typeof db.settings.followupTemplateMap === "object" ? db.settings.followupTemplateMap : {};
+  const row = map[key] || map[String(language || "")] || null;
+  return row ? String(row[action] || "") : "";
+}
+function resolveAutomaticFollowupTemplate(action, lead) {
+  const language = lead?.language || "";
+  const mappedName = getFollowupTemplateMapping(action, language);
+  if (!mappedName) return null;
+  const template = db.templates.find(t => String(t.name) === mappedName && String(t.status).toUpperCase() === "APPROVED" && normalizeTemplateLanguageForLead(t.language) === getLeadLanguageKey(language));
+  return template || null;
+}
+
+async function sendAutomaticFollowup(lead, action) {
+  if (!lead || lead.optOut || lead.stage === STAGES.JUNK || lead.stage === STAGES.PHOTO_RECEIVED || lead.stage === STAGES.WAITING_RESPONSE) return false;
+  const template = resolveAutomaticFollowupTemplate(action, lead);
+  if (!template) {
+    addEvent("followup_template_missing", { leadId: lead.id, phone: lead.phone, action, language: lead.language || "", reason: "No explicit language × follow-up template mapping or mapped template is not approved." });
+    return false;
+  }
+
+  try {
+    const config = getTemplateConfig(template);
+    const sent = await sendLeadMessage({
+      lead,
+      template,
+      variables: [],
+      mediaUrl: config.mediaUrl || "",
+      buttonPayloads: {},
+      buttonParameters: {},
+      action,
+      updateLeadStage: true,
+      agentId: null
+    });
+    addEvent("automatic_followup_sent", { leadId: lead.id, phone: lead.phone, action, templateName: template.name, language: template.language, messageId: sent.messageId });
+    return true;
+  } catch (error) {
+    addEvent("automatic_followup_failed", { leadId: lead.id, phone: lead.phone, action, error: error.message, code: error.code || null, errorCode: error.errorCode || null });
+    console.error(`[FOLLOWUP] ${action} failed for lead ${lead.id}: ${error.message}`);
+    return false;
+  }
+}
+
 function markContacted(lead, messageMeta, isInitial = false) {
   const sentAt = messageMeta.sentAt || now();
   if (isInitial || !lead.contactedAt) {
@@ -355,16 +437,24 @@ function markContacted(lead, messageMeta, isInitial = false) {
   lead.updatedAt = sentAt;
   saveDatabase();
 }
-function processLeadTimers() {
+async function processLeadTimers() {
   if (!db || !Array.isArray(db.leads)) return;
   const t = Date.now();
   for (const lead of db.leads) {
     if (lead.optOut || lead.stage === STAGES.JUNK || lead.stage === STAGES.PHOTO_RECEIVED || lead.stage === STAGES.WAITING_RESPONSE) continue;
-    if (lead.contactedAt && !lead.followup1SentAt && lead.followup1DueAt && new Date(lead.followup1DueAt).getTime() <= t && lead.stage === STAGES.CONTACTED) {
-      setLeadStage(lead, STAGES.PENDING_FOLLOWUP, "followup_1_due");
-    }
-    if (lead.followup1SentAt && !lead.followup2SentAt && lead.followup2DueAt && new Date(lead.followup2DueAt).getTime() <= t && lead.stage === STAGES.FOLLOWUP_DONE) {
-      setLeadStage(lead, STAGES.PENDING_FOLLOWUP, "followup_2_due");
+    if (leadFollowupWorkers.has(lead.id)) continue;
+
+    const followup1Due = lead.contactedAt && !lead.followup1SentAt && lead.followup1DueAt && new Date(lead.followup1DueAt).getTime() <= t;
+    const followup2Due = lead.followup1SentAt && !lead.followup2SentAt && lead.followup2DueAt && new Date(lead.followup2DueAt).getTime() <= t;
+    if (!followup1Due && !followup2Due) continue;
+
+    leadFollowupWorkers.add(lead.id);
+    try {
+      const action = followup1Due ? "followup1" : "followup2";
+      setLeadStage(lead, STAGES.PENDING_FOLLOWUP, action === "followup1" ? "followup_1_due" : "followup_2_due");
+      await sendAutomaticFollowup(lead, action);
+    } finally {
+      leadFollowupWorkers.delete(lead.id);
     }
   }
 }
@@ -376,6 +466,14 @@ function applyStatusToMessage(message, status) {
   message.statusErrors = status.errors || [];
   message.statusRecipient = status.recipient_id || message.statusRecipient || null;
 }
+function rollbackFailedAutomaticFollowup(message, status){
+  if(!message || String(status?.status||"").toLowerCase()!=="failed" || !message.leadId || !["followup1","followup2"].includes(message.action)) return;
+  const lead=db.leads.find(l=>String(l.id)===String(message.leadId));
+  if(!lead || lead.optOut || lead.stage===STAGES.JUNK || lead.stage===STAGES.PHOTO_RECEIVED) return;
+  if(message.action==="followup1"){lead.followup1SentAt=null;lead.followup2DueAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP,"followup_1_delivery_failed");}
+  else {lead.followup2SentAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP,"followup_2_delivery_failed");}
+  addEvent("automatic_followup_delivery_failed",{leadId:lead.id,phone:lead.phone,action:message.action,errors:status?.errors||[]});
+}
 function applyPendingStatus(messageId) {
   if (!messageId) return null;
   const pending = db.pendingStatuses?.[messageId];
@@ -383,6 +481,7 @@ function applyPendingStatus(messageId) {
   const message = db.messages.find(m => m.wamid === messageId);
   if (!message) return null;
   applyStatusToMessage(message, pending);
+  rollbackFailedAutomaticFollowup(message,pending);
   delete db.pendingStatuses[messageId];
   return pending;
 }
@@ -885,6 +984,7 @@ app.post("/api/leads/:id/send",(req,res)=>{
       if(lead.optOut||lead.stage===STAGES.JUNK)return res.status(400).json({error:"Lead is opted out/Junk and cannot be messaged automatically."});
       const {type="template",text,templateName,language,variables=[],mediaUrl,buttonPayloads={},buttonParameters={},action="initial"}=req.body||{};
       if(type==="text"){
+        assertMessagingWindow(lead.phone);
         const result=await sendTextMessage(lead.phone,text,{leadId:lead.id,action,agentId:currentAgent(req)?.id||null});
         if(action==="initial") markContacted(lead,{messageId:result?.messages?.[0]?.id||null,templateName:null,sentAt:now()},true);
         return res.json({success:true,result,lead});
@@ -893,7 +993,7 @@ app.post("/api/leads/:id/send",(req,res)=>{
       if(String(template.status).toUpperCase()!=="APPROVED")return res.status(400).json({error:"Template is not approved."});
       const sent=await sendLeadMessage({lead,template,variables,mediaUrl,buttonPayloads,buttonParameters,action,agentId:currentAgent(req)?.id||null});
       res.json({success:true,...sent,lead});
-    }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+    }catch(e){res.status(e.status||500).json({success:false,error:e.message,code:e.code||null,errorCode:e.errorCode||null,window:e.window||null,meta:e.meta||null});}
   })();
 });
 
@@ -902,6 +1002,7 @@ app.post("/api/messages/send", async (req,res)=>{
   try{
     const {to,type="text",text,template}=req.body||{};
     if(type==="text"){
+      assertMessagingWindow(to);
       const result=await sendTextMessage(to,text,{action:"manual"});
       return res.json({success:true,result});
     }
@@ -911,7 +1012,7 @@ app.post("/api/messages/send", async (req,res)=>{
     const components=buildTemplateComponents(t,{variables,mediaUrl:template?.mediaUrl,buttonPayloads:template?.buttonPayloads||{},buttonParameters:template?.buttonParameters||{}});
     const result=await sendTemplateMessage({to,name:t.name,language:t.language,components,action:"manual"});
     res.json({success:true,result});
-  }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+  }catch(e){res.status(e.status||500).json({success:false,error:e.message,code:e.code||null,errorCode:e.errorCode||null,window:e.window||null,meta:e.meta||null});}
 });
 
 /* Campaigns / broadcast */
@@ -1137,6 +1238,7 @@ app.post("/api/inbox/:waId/send-media",async(req,res)=>{
   try{
     const phone=cleanPhone(req.params.waId);const {dataUrl,mimeType,filename,caption=""}=req.body||{};
     if(!dataUrl)return res.status(400).json({error:"Media is required."});
+    assertMessagingWindow(phone);
     const mediaId=await uploadWhatsAppMedia(dataUrl,mimeType,filename);
     const type=String(mimeType||"").startsWith("image/")?"image":String(mimeType||"").startsWith("video/")?"video":String(mimeType||"").startsWith("audio/")?"audio":"document";
     const payload={messaging_product:"whatsapp",recipient_type:"individual",to:phone,type,[type]:{id:mediaId,...(caption?{caption}:{}),...(type==="document"&&filename?{filename}: {})}};
@@ -1144,16 +1246,24 @@ app.post("/api/inbox/:waId/send-media",async(req,res)=>{
     const messageId=result?.messages?.[0]?.id||null;
     storeOutboundMessage({to:phone,messageId,type, text:caption,metaResponse:result,leadId:leadForPhone(phone)?.id||null,action:"inbox_media",agentId:currentAgent(req)?.id||null});
     res.json({success:true,result,mediaId});
-  }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+  }catch(e){res.status(e.status||500).json({success:false,error:e.message,code:e.code||null,errorCode:e.errorCode||null,window:e.window||null,meta:e.meta||null});}
 });
 
 app.post("/api/inbox/:waId/send",async(req,res)=>{
   try{
     const phone=cleanPhone(req.params.waId);const {type="text",text,template}=req.body||{};let result;
-    if(type==="template") result=await sendTemplateMessage({to:phone,name:template?.name,language:template?.language,components:template?.components||[],leadId:leadForPhone(phone)?.id||null,action:template?.action||"manual",agentId:currentAgent(req)?.id||null});
-    else result=await sendTextMessage(phone,text,{leadId:leadForPhone(phone)?.id||null,action:"manual",agentId:currentAgent(req)?.id||null});
+    if(type==="template"){
+      const t=templateByKey(template?.name,template?.language);
+      if(!t||String(t.status).toUpperCase()!=="APPROVED") return res.status(400).json({error:"Approved template not found."});
+      const components=buildTemplateComponents(t,{variables:Array.isArray(template?.variables)?template.variables:[],mediaUrl:template?.mediaUrl,buttonPayloads:template?.buttonPayloads||{},buttonParameters:template?.buttonParameters||{}});
+      result=await sendTemplateMessage({to:phone,name:t.name,language:t.language,components,leadId:leadForPhone(phone)?.id||null,action:template?.action||"manual",agentId:currentAgent(req)?.id||null});
+    } else { assertMessagingWindow(phone); result=await sendTextMessage(phone,text,{leadId:leadForPhone(phone)?.id||null,action:"manual",agentId:currentAgent(req)?.id||null}); }
     res.json({success:true,result});
-  }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
+  }catch(e){res.status(e.status||500).json({success:false,error:e.message,code:e.code||null,errorCode:e.errorCode||null,window:e.window||null,meta:e.meta||null});}
+});
+app.get("/api/inbox/:waId/window",(req,res)=>{
+  const phone=cleanPhone(req.params.waId);
+  res.json({success:true,data:getMessagingWindow(phone)});
 });
 app.post("/api/inbox/:waId/read",(req,res)=>{const c=db.conversations[cleanPhone(req.params.waId)];if(c)c.unread=0;saveDatabase();res.json({success:true});});
 app.post("/api/inbox/:waId/stage",(req,res)=>{const lead=leadForPhone(req.params.waId);if(!lead)return res.status(404).json({error:"Lead not found"});if(req.body?.stage===STAGES.JUNK)lead.optOut=true;setLeadStage(lead,req.body?.stage,"inbox");res.json({success:true,data:lead});});
@@ -1228,6 +1338,9 @@ function handleIncomingMessage(message,value){
     if(lead){lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"customer_opt_out");}
   } else if(media&&["image","video"].includes(message.type)){
     if(lead)setLeadStage(lead,STAGES.PHOTO_RECEIVED,"photo_received");
+  } else if(lead && lead.contactedAt && !lead.optOut && [STAGES.CONTACTED,STAGES.PENDING_FOLLOWUP,STAGES.FOLLOWUP_DONE].includes(lead.stage)){
+    setLeadStage(lead,STAGES.WAITING_RESPONSE,"customer_replied");
+    addEvent("followup_sequence_stopped",{leadId:lead.id,phone:lead.phone,reason:"customer_replied"});
   }
   saveDatabase();addEvent("incoming_message",{wa_id:phone,type:message.type,mediaId:media?.id||null});
 }
@@ -1235,6 +1348,7 @@ function handleStatusUpdate(status){
   const message=db.messages.find(m=>m.wamid===status.id);
   if(message){
     applyStatusToMessage(message,status);
+    rollbackFailedAutomaticFollowup(message,status);
     db.campaigns.forEach(c=>{const r=c.results.find(x=>x.messageId===status.id);if(r){r.status=status.status;if(status.status==="failed")r.error=status.errors||[];}});
   } else if(status?.id){
     db.pendingStatuses[status.id]={id:status.id,status:status.status,timestamp:status.timestamp||null,recipient_id:status.recipient_id||null,errors:status.errors||[]};
@@ -1361,7 +1475,23 @@ app.get("/api/dashboard/stats",(req,res)=>{
 });
 app.get("/api/events",(req,res)=>res.json({data:db.events.slice(0,200)}));
 app.get("/api/settings/followups",(req,res)=>res.json({data:db.settings}));
-app.post("/api/settings/followups",(req,res)=>{const s=req.body||{};db.settings.followup1Days=Math.max(1,Number(s.followup1Days)||1);db.settings.followup2Days=Math.max(1,Number(s.followup2Days)||3);saveDatabase();res.json({success:true,data:db.settings});});
+app.post("/api/settings/followups",(req,res)=>{
+  const s=req.body||{};
+  db.settings.followup1Days=Math.max(1,Number(s.followup1Days)||1);
+  db.settings.followup2Days=Math.max(1,Number(s.followup2Days)||3);
+  if(Object.prototype.hasOwnProperty.call(s,"followupTemplateMap")) {
+    const incoming=s.followupTemplateMap&&typeof s.followupTemplateMap==="object"?s.followupTemplateMap:{};
+    const clean={};
+    for(const [language,row] of Object.entries(incoming)){
+      if(!row||typeof row!=="object") continue;
+      const key=getLeadLanguageKey(language);
+      clean[key]={followup1:String(row.followup1||""),followup2:String(row.followup2||"")};
+    }
+    db.settings.followupTemplateMap=clean;
+  }
+  saveDatabase();
+  res.json({success:true,data:db.settings});
+});
 
 /* Connected numbers UI */
 app.get("/api/numbers",(req,res)=>res.json({data:db.connectedNumbers,active:process.env.CONNECTED_WHATSAPP_NUMBER||""}));
@@ -1374,8 +1504,8 @@ async function startServer() {
   db = await loadDatabase();
   ensureDefaultAgent();
   console.log(`[STARTUP] Database loaded: contacts=${db.contacts.length}, leads=${db.leads.length}, messages=${db.messages.length}`);
-  processLeadTimers();
-  setInterval(processLeadTimers, 30000);
+  void processLeadTimers();
+  setInterval(() => { void processLeadTimers(); }, 30000);
   appReady = true;
   app.listen(PORT,"0.0.0.0",()=>{
     console.log(`Royal Hair WhatsApp Dashboard running on port ${PORT}`);

@@ -1,25 +1,28 @@
-# Royal Hair Command Center — Phase 3 + Phase 4
+# Royal Hair Command Center — Phase 3 + 4 + Automatic Follow-ups + Explicit Language Mapping
 
-## Phase 3 — Intelligence
-- Analytics dashboard: lead funnel, response rate, photo rate, average response time, message activity and stage distribution.
-- Language intelligence: conversation language detection for common Royal Hair lead languages; detected language is stored on contacts/leads.
-- AI Assistant: conversation summary, intent, risk/escalation, next action and suggested reply. Suggestions are never sent automatically.
-- Optional OpenAI integration via `OPENAI_API_KEY` and `OPENAI_MODEL`. Without a key, the assistant uses a safe rule-based fallback.
+This build includes:
+- Phase 3 Intelligence: analytics, language intelligence and AI assistant.
+- Phase 4 Scale: multi-agent support, assignments, roles/permissions and agent performance.
+- Automatic Follow-up 1 and Follow-up 2 processing.
+- 24-hour messaging-window protection for free-form messages.
+- **Explicit language × follow-up template mapping**.
 
-## Phase 4 — Scale
-- Multi-agent team records.
-- Lead/conversation assignment and reassignment.
-- Roles and permission definitions: Admin, Manager, Lead Qualification Agent, Viewer.
-- Agent performance metrics: assigned leads, outbound messages, photos and conversion rate.
-- Browser-level agent selection is stored in localStorage and sent as `X-Agent-Id` for operational attribution.
-- Audit records for team/assignment changes.
+## Multilingual follow-up behavior
+Follow-up automation no longer guesses or falls back to another language.
+Each lead uses its Bitrix `language` value, normalized to the supported language key, and the exact approved Meta template mapped for that language and follow-up number.
 
-## Render
-Existing environment variables remain valid. Optional:
-- `OPENAI_API_KEY` — add an API key to enable model-powered AI assistance.
-- `OPENAI_MODEL` — defaults to `gpt-6-luna`.
+Example:
+- English + Follow-up 1 -> mapped English Follow-up 1 template
+- Italian + Follow-up 1 -> mapped Italian Follow-up 1 template
+- Spanish + Follow-up 2 -> mapped Spanish Follow-up 2 template
 
-Do not put the OpenAI key in frontend code. It must remain a Render environment variable.
+If a language/follow-up mapping is missing, or the mapped template is not approved, the system does **not send**. It logs `followup_template_missing` and leaves the lead available for attention.
 
-## Important
-This build adds the intelligence/team layer without changing the existing WhatsApp webhook, Bitrix, follow-up, broadcast or Shared Inbox workflows. Role definitions and permission checks are active for team management and lead assignment; a full login/authentication gate can be enabled as a later security layer once the team's identity provider/credentials are decided.
+## Setup
+1. Deploy the files without changing your existing Render environment variables or PostgreSQL database.
+2. Open **Settings -> Follow-up sequence**.
+3. Set Follow-up 1 and Follow-up 2 timing.
+4. Under **Language × template mapping**, select the exact approved Meta template for each language and each follow-up.
+5. Click **Save sequence & mappings**.
+
+Do not select a generic/free-message template. The automation requires an approved WhatsApp template.
