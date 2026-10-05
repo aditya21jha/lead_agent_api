@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: royal-hair-whatsapp-command-center
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: PHONE_NUMBER_ID
+        sync: false
+      - key: WABA_ID
+        sync: false
+      - key: VERIFY_TOKEN
+        sync: false
+      - key: BITRIX_WEBHOOK_URL
+        sync: false
+      - key: GRAPH_API_VERSION
+        value: v26.0
+      - key: CONNECTED_WHATSAPP_NUMBER
+        sync: false

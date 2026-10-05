@@ -591,13 +591,36 @@ async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", 
 
 /* Health/config */
 app.get("/api/health", (req,res) => res.json({ ok:true, service:"Royal Hair Istanbul WhatsApp Dashboard", timestamp:now(), whatsappConfigured:Boolean(WHATSAPP_TOKEN&&PHONE_NUMBER_ID&&WABA_ID), bitrixConfigured:Boolean(BITRIX_WEBHOOK_URL) }));
-app.get("/api/config", (req,res) => res.json({
-  configured:Boolean(WHATSAPP_TOKEN&&PHONE_NUMBER_ID&&WABA_ID),
-  phoneNumberId:PHONE_NUMBER_ID||"",
-  wabaId:WABA_ID||"",
-  graphApiVersion:GRAPH_API_VERSION,
-  connectedNumber:process.env.CONNECTED_WHATSAPP_NUMBER || ""
-}));
+app.get("/api/config", async (req,res) => {
+  const base = {
+    configured:Boolean(WHATSAPP_TOKEN&&PHONE_NUMBER_ID&&WABA_ID),
+    phoneNumberId:PHONE_NUMBER_ID||"",
+    wabaId:WABA_ID||"",
+    graphApiVersion:GRAPH_API_VERSION,
+    connectedNumber:process.env.CONNECTED_WHATSAPP_NUMBER || "",
+    whatsappStatus:"unknown",
+    displayPhoneNumber:"",
+    verifiedName:"",
+    qualityRating:"",
+    platformType:""
+  };
+  if(!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) return res.json(base);
+  try {
+    const phone = await metaRequest(`/${PHONE_NUMBER_ID}?fields=id,display_phone_number,verified_name,quality_rating,status,platform_type,is_on_biz_app,code_verification_status,is_pin_enabled`);
+    base.whatsappStatus = String(phone?.status || "unknown").toUpperCase();
+    base.displayPhoneNumber = phone?.display_phone_number || "";
+    base.verifiedName = phone?.verified_name || "";
+    base.qualityRating = phone?.quality_rating || "";
+    base.platformType = phone?.platform_type || "";
+    base.isOnBizApp = Boolean(phone?.is_on_biz_app);
+    base.codeVerificationStatus = phone?.code_verification_status || "";
+    base.pinEnabled = Boolean(phone?.is_pin_enabled);
+  } catch (e) {
+    base.whatsappStatus = "error";
+    base.connectionError = e.message;
+  }
+  res.json(base);
+});
 
 app.get("/api/diagnostics/whatsapp", async (req,res) => {
   const result = { timestamp: now(), config: { token: !!WHATSAPP_TOKEN, phoneNumberId: !!PHONE_NUMBER_ID, wabaId: !!WABA_ID, graphApiVersion: GRAPH_API_VERSION }, checks: {} };
