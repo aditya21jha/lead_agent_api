@@ -1,13 +1,17 @@
 {
   "name": "royal-hair-whatsapp-dashboard",
-  "version": "2.0.0",
+  "version": "4.0.0",
   "description": "Royal Hair Istanbul WhatsApp Command Center",
   "main": "app.js",
-  "scripts": {"start": "node app.js"},
+  "scripts": {
+    "start": "node app.js"
+  },
   "dependencies": {
     "express": "^4.21.2",
     "libphonenumber-js": "^1.12.17",
     "pg": "^8.16.3"
   },
-  "engines": {"node": ">=18"}
+  "engines": {
+    "node": ">=18"
+  }
 }

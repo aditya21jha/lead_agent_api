@@ -26,6 +26,9 @@ const WABA_ID = process.env.WABA_ID;
 const BITRIX_WEBHOOK_URL = process.env.BITRIX_WEBHOOK_URL;
 const GRAPH_API_VERSION = process.env.GRAPH_API_VERSION || "v23.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+const BITRIX_LANGUAGE_NAMES = {"45":"English","221":"Italiano","215":"Français","217":"Español","209":"Română","223":"Deutsch","49":"Русский","213":"Türkçe","211":"Polski","47":"Português","7103":"Ελληνικά","7119":"Bosnian","10309":"Bulgarian"};
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-6-luna";
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DATA_FILE = path.join(DATA_DIR, "database.json");
@@ -79,7 +82,11 @@ const defaultDatabase = {
     followup2Days: 3
   },
   connectedNumbers: [],
-  pendingStatuses: {}
+  pendingStatuses: {},
+  agents: [],
+  assignments: [],
+  aiUsage: [],
+  auditLog: []
 };
 
 function normalizeDatabase(data) {
@@ -97,7 +104,11 @@ function normalizeDatabase(data) {
     events: Array.isArray(source.events) ? source.events : [],
     leads: Array.isArray(source.leads) ? source.leads : [],
     settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}) },
-    connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : []
+    connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : [],
+    agents: Array.isArray(source.agents) ? source.agents : [],
+    assignments: Array.isArray(source.assignments) ? source.assignments : [],
+    aiUsage: Array.isArray(source.aiUsage) ? source.aiUsage : [],
+    auditLog: Array.isArray(source.auditLog) ? source.auditLog : []
   };
 }
 
@@ -170,6 +181,7 @@ function saveDatabase() {
 
 function now() { return new Date().toISOString(); }
 function cleanPhone(value) { return String(value || "").replace(/\D/g, ""); }
+function initials(value){return String(value||"?").split(/\s+/).slice(0,2).map(x=>x[0]||"").join("").toUpperCase();}
 function makeId(prefix = "id") {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -384,7 +396,7 @@ function renderTemplateText(templateName, language, components = []) {
   bodyParams.forEach((p, i) => { text = text.replace(`{{${i+1}}}`, String(p.text ?? "")); });
   return text || `Template: ${templateName}`;
 }
-function storeOutboundMessage({ to, messageId, type, text = "", templateName = null, templateLanguage = null, templateComponents = [], metaResponse = null, leadId = null, action = null }) {
+function storeOutboundMessage({ to, messageId, type, text = "", templateName = null, templateLanguage = null, templateComponents = [], metaResponse = null, leadId = null, action = null, agentId = null }) {
   const phone = cleanPhone(to);
   upsertContact({ phone, wa_id: phone });
   const conversation = getConversation(phone);
@@ -402,7 +414,8 @@ function storeOutboundMessage({ to, messageId, type, text = "", templateName = n
     timestamp: now(),
     metaResponse,
     leadId: leadId || null,
-    action: action || null
+    action: action || null,
+    agentId: agentId || null
   };
   db.messages.push(message);
   applyPendingStatus(messageId);
@@ -425,7 +438,7 @@ async function sendTextMessage(to, body, meta = {}) {
   };
   const result = await metaRequest(`/${PHONE_NUMBER_ID}/messages`, { method: "POST", body: JSON.stringify(payload) });
   const messageId = result?.messages?.[0]?.id || null;
-  storeOutboundMessage({ to: recipient, messageId, type: "text", text: body, metaResponse: result, leadId: meta.leadId, action: meta.action });
+  storeOutboundMessage({ to: recipient, messageId, type: "text", text: body, metaResponse: result, leadId: meta.leadId, action: meta.action, agentId: meta.agentId });
   return result;
 }
 function getTemplateConfigKey(template) {
@@ -541,7 +554,7 @@ function buildTemplateComponents(template, input = {}) {
   }
   return components;
 }
-async function sendTemplateMessage({ to, name, language, components = [], leadId = null, action = null }) {
+async function sendTemplateMessage({ to, name, language, components = [], leadId = null, action = null, agentId = null }) {
   const recipient = cleanPhone(to);
   if (!recipient) throw new Error("Invalid recipient number.");
   if (!name || !language) throw new Error("Template name and language are required.");
@@ -564,11 +577,12 @@ async function sendTemplateMessage({ to, name, language, components = [], leadId
     templateComponents: components,
     metaResponse: result,
     leadId,
-    action
+    action,
+    agentId
   });
   return result;
 }
-async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", buttonPayloads = {}, buttonParameters = {}, action = "initial", updateLeadStage = true }) {
+async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", buttonPayloads = {}, buttonParameters = {}, action = "initial", updateLeadStage = true, agentId = null }) {
   if (!template) throw new Error("Approved template is required.");
   const components = buildTemplateComponents(template, { variables, mediaUrl, buttonPayloads, buttonParameters });
   const result = await sendTemplateMessage({
@@ -577,7 +591,8 @@ async function sendLeadMessage({ lead, template, variables = [], mediaUrl = "", 
     language: template.language,
     components,
     leadId: lead.id,
-    action
+    action,
+    agentId
   });
   const messageId = result?.messages?.[0]?.id || null;
   const sentAt = now();
@@ -870,13 +885,13 @@ app.post("/api/leads/:id/send",(req,res)=>{
       if(lead.optOut||lead.stage===STAGES.JUNK)return res.status(400).json({error:"Lead is opted out/Junk and cannot be messaged automatically."});
       const {type="template",text,templateName,language,variables=[],mediaUrl,buttonPayloads={},buttonParameters={},action="initial"}=req.body||{};
       if(type==="text"){
-        const result=await sendTextMessage(lead.phone,text,{leadId:lead.id,action});
+        const result=await sendTextMessage(lead.phone,text,{leadId:lead.id,action,agentId:currentAgent(req)?.id||null});
         if(action==="initial") markContacted(lead,{messageId:result?.messages?.[0]?.id||null,templateName:null,sentAt:now()},true);
         return res.json({success:true,result,lead});
       }
       const template=templateByKey(templateName,language);if(!template)return res.status(400).json({error:"Approved template not found. Sync templates first."});
       if(String(template.status).toUpperCase()!=="APPROVED")return res.status(400).json({error:"Template is not approved."});
-      const sent=await sendLeadMessage({lead,template,variables,mediaUrl,buttonPayloads,buttonParameters,action});
+      const sent=await sendLeadMessage({lead,template,variables,mediaUrl,buttonPayloads,buttonParameters,action,agentId:currentAgent(req)?.id||null});
       res.json({success:true,...sent,lead});
     }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
   })();
@@ -1127,7 +1142,7 @@ app.post("/api/inbox/:waId/send-media",async(req,res)=>{
     const payload={messaging_product:"whatsapp",recipient_type:"individual",to:phone,type,[type]:{id:mediaId,...(caption?{caption}:{}),...(type==="document"&&filename?{filename}: {})}};
     const result=await metaRequest(`/${PHONE_NUMBER_ID}/messages`,{method:"POST",body:JSON.stringify(payload)});
     const messageId=result?.messages?.[0]?.id||null;
-    storeOutboundMessage({to:phone,messageId,type, text:caption,metaResponse:result,leadId:leadForPhone(phone)?.id||null,action:"inbox_media"});
+    storeOutboundMessage({to:phone,messageId,type, text:caption,metaResponse:result,leadId:leadForPhone(phone)?.id||null,action:"inbox_media",agentId:currentAgent(req)?.id||null});
     res.json({success:true,result,mediaId});
   }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
 });
@@ -1135,8 +1150,8 @@ app.post("/api/inbox/:waId/send-media",async(req,res)=>{
 app.post("/api/inbox/:waId/send",async(req,res)=>{
   try{
     const phone=cleanPhone(req.params.waId);const {type="text",text,template}=req.body||{};let result;
-    if(type==="template") result=await sendTemplateMessage({to:phone,name:template?.name,language:template?.language,components:template?.components||[],leadId:leadForPhone(phone)?.id||null,action:template?.action||"manual"});
-    else result=await sendTextMessage(phone,text,{leadId:leadForPhone(phone)?.id||null,action:"manual"});
+    if(type==="template") result=await sendTemplateMessage({to:phone,name:template?.name,language:template?.language,components:template?.components||[],leadId:leadForPhone(phone)?.id||null,action:template?.action||"manual",agentId:currentAgent(req)?.id||null});
+    else result=await sendTextMessage(phone,text,{leadId:leadForPhone(phone)?.id||null,action:"manual",agentId:currentAgent(req)?.id||null});
     res.json({success:true,result});
   }catch(e){res.status(e.status||500).json({success:false,error:e.message,meta:e.meta||null});}
 });
@@ -1206,6 +1221,8 @@ function handleIncomingMessage(message,value){
   db.messages.push({id:makeId("msg"),wamid:message.id,wa_id:phone,direction:"inbound",type:message.type||"unknown",text,media,raw:message,status:"received",timestamp});
   conversation.unread=Number(conversation.unread||0)+1;conversation.lastIncomingAt=timestamp;conversation.lastIncomingId=message.id||makeId("in");conversation.lastMessageAt=timestamp;conversation.lastMessage=text;conversation.lastDirection="inbound";
   const lead=leadForPhone(phone);
+  if(lead && text) enrichLanguage(lead,text);
+  else if(text){ const d=detectLanguage(text); if(d.language && contact && (!contact.language || contact.languageSource!=="bitrix")){ contact.language=d.language; contact.languageConfidence=d.confidence; contact.languageSource="conversation"; contact.updatedAt=now(); } }
   const lower=text.toLowerCase();
   if(/^(stop|remove|unsubscribe|not interested|no thanks)\b/.test(lower)||lower.includes("not interested")){
     if(lead){lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"customer_opt_out");}
@@ -1225,6 +1242,114 @@ function handleStatusUpdate(status){
   }
   saveDatabase();addEvent("message_status",{wamid:status.id,status:status.status,recipient:status.recipient_id});
 }
+
+
+/* ===== Phase 3 + 4 Intelligence / Scale ===== */
+const ROLE_PERMISSIONS = {
+  Admin: ["analytics.view","ai.use","leads.view","leads.edit","leads.assign","broadcast.send","templates.manage","team.manage","settings.manage"],
+  Manager: ["analytics.view","ai.use","leads.view","leads.edit","leads.assign","broadcast.send","templates.manage","team.view"],
+  "Lead Qualification Agent": ["analytics.view","ai.use","leads.view","leads.edit","leads.assign","broadcast.send"],
+  Viewer: ["analytics.view","leads.view","team.view"]
+};
+const ROLE_LABELS = Object.keys(ROLE_PERMISSIONS);
+function ensureDefaultAgent(){
+  if(!Array.isArray(db.agents)) db.agents=[];
+  if(!db.agents.length){
+    db.agents.push({id:"agent_admin",name:"Aditya",email:"",role:"Admin",status:"online",avatar:"AJ",createdAt:now(),updatedAt:now()});
+    saveDatabase();
+  }
+  return db.agents[0];
+}
+function currentAgent(req){
+  ensureDefaultAgent();
+  return db.agents.find(a=>a.id===String(req.headers["x-agent-id"]||"")) || db.agents.find(a=>a.status!=="inactive") || db.agents[0];
+}
+function hasPermission(agent,permission){return !!agent && (ROLE_PERMISSIONS[agent.role]||[]).includes(permission);}
+function audit(req,type,data={}){const agent=currentAgent(req);db.auditLog.unshift({id:makeId("audit"),type,agentId:agent?.id||null,agentName:agent?.name||"Unknown",timestamp:now(),data});db.auditLog=db.auditLog.slice(0,2000);saveDatabase();}
+function detectLanguage(text){
+  const t=String(text||"").toLowerCase();
+  if(!t.trim()) return {language:"",confidence:0};
+  const scores={English:0,Spanish:0,Italian:0,French:0,German:0,Romanian:0,Portuguese:0,Polish:0,Turkish:0};
+  const sets={
+    English:["the","and","hello","hi","please","want","hair","transplant","price","how","what","can","you","thanks"],
+    Spanish:["hola","gracias","quiero","precio","cabello","pelo","trasplante","como","qué","para","una","por"],
+    Italian:["ciao","grazie","vorrei","prezzo","capelli","trapianto","come","perché","quanto","una","sono"],
+    French:["bonjour","merci","cheveux","greffe","prix","combien","vous","avec","pour","une"],
+    German:["hallo","danke","haare","haartransplantation","preis","wie","ich","und","für","eine"],
+    Romanian:["bună","multumesc","mulțumesc","păr","transplant","preț","vreau","pentru","cum","este"],
+    Portuguese:["olá","obrigado","cabelo","transplante","preço","quero","como","para","uma","você"],
+    Polish:["cześć","dzień","dziękuję","włosy","przeszczep","cena","chcę","jak","dla","jest"],
+    Turkish:["merhaba","teşekkür","saç","ekimi","fiyat","istiyorum","nasıl","için","bir","ben"]
+  };
+  for(const [lang,words] of Object.entries(sets)) for(const w of words) if(t.includes(w)) scores[lang]+=w.length>4?2:1;
+  const [language,score]=Object.entries(scores).sort((a,b)=>b[1]-a[1])[0];
+  const total=Object.values(scores).reduce((a,b)=>a+b,0);
+  return {language:score?language:"English",confidence:score?Math.min(.99,score/Math.max(4,total)):0.2};
+}
+function enrichLanguage(lead,text){
+  const d=detectLanguage(text); if(!d.language)return d;
+  lead.detectedLanguage=d.language; lead.languageConfidence=d.confidence; lead.languageSource="conversation"; lead.updatedAt=now();
+  const c=lead.contactId ? db.contacts.find(x=>x.id===lead.contactId) : getContact(lead.phone);
+  if(c && (!c.language || c.language.length<2 || c.language===lead.language)){c.language=d.language;c.languageConfidence=d.confidence;c.languageSource="conversation";c.updatedAt=now();}
+  if(!lead.language || lead.language===lead.detectedLanguage || !Object.values(BITRIX_LANGUAGE_NAMES).includes(String(lead.language))) lead.language=d.language;
+  return d;
+}
+function leadMessages(lead){return db.messages.filter(m=>cleanPhone(m.wa_id)===cleanPhone(lead.phone)).sort((a,b)=>new Date(a.timestamp)-new Date(b.timestamp));}
+function analyticsSnapshot(days=30){
+  const since=Date.now()-days*86400000, msgs=db.messages.filter(m=>new Date(m.timestamp).getTime()>=since), ls=db.leads;
+  const byDay={}; for(const m of msgs){const day=String(m.timestamp).slice(0,10);byDay[day]??={sent:0,received:0};m.direction==="inbound"?byDay[day].received++:byDay[day].sent++;}
+  const responseTimes=[];
+  for(const l of ls){const ms=leadMessages(l);for(let i=1;i<ms.length;i++){if(ms[i-1].direction==="inbound"&&ms[i].direction==="outbound") responseTimes.push(new Date(ms[i].timestamp)-new Date(ms[i-1].timestamp));}}
+  const avgResponse=responseTimes.length?Math.round(responseTimes.reduce((a,b)=>a+b,0)/responseTimes.length/60000):0;
+  const contacted=ls.filter(l=>l.contactedAt).length, photos=ls.filter(l=>l.stage===STAGES.PHOTO_RECEIVED||l.stageHistory?.some(x=>x.stage===STAGES.PHOTO_RECEIVED)).length;
+  const active=ls.filter(l=>l.stage!==STAGES.JUNK).length;
+  const language={}; for(const l of ls){const lang=l.detectedLanguage||l.language||"Unknown";language[lang]=(language[lang]||0)+1;}
+  const stage={}; Object.values(STAGES).forEach(x=>stage[x]=ls.filter(l=>l.stage===x).length);
+  return {days,totals:{leads:ls.length,active,contacted,photos,messages:msgs.length,inbound:msgs.filter(m=>m.direction==="inbound").length,outbound:msgs.filter(m=>m.direction==="outbound").length,avgResponseMinutes:avgResponse,responseRate:contacted?Math.round((msgs.filter(m=>m.direction==="inbound").length/Math.max(1,contacted))*100):0,photoRate:contacted?Math.round(photos/contacted*100):0},stage,language,byDay};
+}
+function agentPerformance(){
+  ensureDefaultAgent();
+  return db.agents.map(a=>{
+    const assigned=db.leads.filter(l=>l.assignedAgentId===a.id); const ids=new Set(assigned.map(l=>l.id));
+    const sent=db.messages.filter(m=>m.direction==="outbound"&&m.agentId===a.id).length;
+    const received=db.messages.filter(m=>m.direction==="inbound"&&ids.has(leadForPhone(m.wa_id)?.id)).length;
+    const photos=assigned.filter(l=>l.stage===STAGES.PHOTO_RECEIVED||l.stageHistory?.some(x=>x.stage===STAGES.PHOTO_RECEIVED)).length;
+    const completed=assigned.filter(l=>l.stage===STAGES.WAITING_RESPONSE||l.stage===STAGES.FOLLOWUP_DONE||l.stage===STAGES.PHOTO_RECEIVED).length;
+    return {...a,assignedLeads:assigned.length,sentMessages:sent,receivedMessages:received,photos,completed,conversionRate:assigned.length?Math.round(completed/assigned.length*100):0};
+  });
+}
+function assignmentLead(lead,agent,req,reason="manual"){const old=lead.assignedAgentId||null;lead.assignedAgentId=agent?.id||null;lead.assignedAgentName=agent?.name||null;lead.assignedAt=agent?now():null;lead.updatedAt=now();db.assignments.unshift({id:makeId("assignment"),leadId:lead.id,fromAgentId:old,toAgentId:agent?.id||null,at:now(),reason});db.assignments=db.assignments.slice(0,2000);audit(req,"lead_assigned",{leadId:lead.id,toAgentId:agent?.id||null,reason});saveDatabase();return lead;}
+
+app.get("/api/analytics",(req,res)=>res.json({data:analyticsSnapshot(Math.min(365,Math.max(1,Number(req.query.days)||30)))}));
+app.get("/api/language-intelligence",(req,res)=>{
+  const snapshot=analyticsSnapshot(365); const recent=db.messages.filter(m=>m.direction==="inbound").slice(-500);
+  const detected=recent.map(m=>({messageId:m.id,phone:m.wa_id,text:m.text,detected:detectLanguage(m.text)}));
+  res.json({data:{distribution:snapshot.language,detected:detected.slice(-100),supported:Object.keys(ROLE_PERMISSIONS).length?Object.values(BITRIX_LANGUAGE_NAMES):[]}});
+});
+app.get("/api/team",(req,res)=>{ensureDefaultAgent();res.json({agents:agentPerformance(),roles:ROLE_PERMISSIONS,assignments:db.assignments.slice(0,200),currentAgent:currentAgent(req)});});
+app.post("/api/team/agents",(req,res)=>{const me=currentAgent(req);if(!hasPermission(me,"team.manage"))return res.status(403).json({error:"Only Admin can manage agents."});const {name,email="",role="Lead Qualification Agent"}=req.body||{};if(!name)return res.status(400).json({error:"Agent name is required."});const a={id:makeId("agent"),name:String(name),email:String(email),role:ROLE_LABELS.includes(role)?role:"Lead Qualification Agent",status:"offline",avatar:initials(name),createdAt:now(),updatedAt:now()};db.agents.push(a);audit(req,"agent_created",{agentId:a.id});saveDatabase();res.json({success:true,data:a});});
+app.patch("/api/team/agents/:id",(req,res)=>{const me=currentAgent(req);if(!hasPermission(me,"team.manage"))return res.status(403).json({error:"Only Admin can manage agents."});const a=db.agents.find(x=>x.id===req.params.id);if(!a)return res.status(404).json({error:"Agent not found"});if(req.body.name!==undefined)a.name=String(req.body.name);if(req.body.email!==undefined)a.email=String(req.body.email);if(req.body.role&&ROLE_LABELS.includes(req.body.role))a.role=req.body.role;if(req.body.status)a.status=req.body.status;a.updatedAt=now();audit(req,"agent_updated",{agentId:a.id});saveDatabase();res.json({success:true,data:a});});
+app.delete("/api/team/agents/:id",(req,res)=>{const me=currentAgent(req);if(!hasPermission(me,"team.manage"))return res.status(403).json({error:"Only Admin can manage agents."});if(req.params.id==="agent_admin"||db.agents.length<=1)return res.status(400).json({error:"The primary admin cannot be removed."});db.agents=db.agents.filter(a=>a.id!==req.params.id);saveDatabase();res.json({success:true});});
+app.post("/api/leads/:id/assign",(req,res)=>{const me=currentAgent(req);if(!hasPermission(me,"leads.assign"))return res.status(403).json({error:"You do not have permission to assign leads."});const lead=db.leads.find(l=>l.id===req.params.id);if(!lead)return res.status(404).json({error:"Lead not found"});const agentId=String(req.body?.agentId||"");const agent=agentId?db.agents.find(a=>a.id===agentId):null;if(agentId&&!agent)return res.status(404).json({error:"Agent not found"});res.json({success:true,data:assignmentLead(lead,agent,req,"manual")});});
+app.get("/api/team/performance",(req,res)=>res.json({data:agentPerformance()}));
+app.post("/api/ai/assist",async(req,res)=>{
+  const {leadId,task="summary",instruction=""}=req.body||{}; const lead=db.leads.find(l=>l.id===leadId); if(!lead)return res.status(404).json({error:"Lead not found"});
+  const msgs=leadMessages(lead).slice(-30).map(m=>`${m.direction==='inbound'?'CUSTOMER':'AGENT'}: ${m.text||`[${m.type}]`}`).join("\n");
+  const lang=lead.detectedLanguage||lead.language||detectLanguage(msgs).language; let result;
+  if(OPENAI_API_KEY){
+    try{
+      const prompt=`You are the internal Royal Hair Istanbul lead-qualification assistant. Do not diagnose, prescribe, promise results, or invent prices. If medical questions arise, recommend human/medical-team review. Analyze this lead conversation and return concise JSON with keys summary, intent, risks, nextAction, suggestedReply. Write suggestedReply in the customer's language (${lang}). Task: ${task}. Extra instruction: ${instruction}\nLead: ${lead.name} / ${lead.phone}\nStage: ${lead.stage}\nConversation:\n${msgs||'(no conversation)'}`;
+      const r=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{Authorization:`Bearer ${OPENAI_API_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({model:OPENAI_MODEL,input:prompt,max_output_tokens:700})});
+      const data=await r.json(); if(!r.ok)throw new Error(data?.error?.message||"AI request failed"); const text=data.output_text||data.output?.map(x=>x.content?.map(c=>c.text||"").join("")).join("\n")||""; try{result=JSON.parse(text.replace(/^```json|```$/g,""))}catch{result={summary:text,intent:"Unknown",risks:[],nextAction:"Review conversation",suggestedReply:""}};
+      db.aiUsage.push({id:makeId("ai"),leadId,agentId:currentAgent(req)?.id,task,at:now(),provider:"openai",model:OPENAI_MODEL});db.aiUsage=db.aiUsage.slice(-1000);saveDatabase();
+    }catch(e){result=null;console.warn("AI assistant fallback:",e.message)}
+  }
+  if(!result){
+    const lower=msgs.toLowerCase(); const photo=lower.includes("photo")||lower.includes("picture")||lower.includes("foto")||lower.includes("fotoğraf"); const price=lower.includes("price")||lower.includes("cost")||lower.includes("precio")||lower.includes("prezzo")||lower.includes("prix");
+    result={summary:`${lead.name} is currently ${lead.stage||"unqualified"}. Language detected: ${lang}. ${photo?"The conversation references photos. ":""}${price?"Pricing is being discussed. ":""}`,intent:photo?"Photo / evaluation":price?"Pricing question":"Lead qualification",risks:price?["Pricing should be handled with approved commercial information."]:[],nextAction:lead.stage===STAGES.PHOTO_RECEIVED?"Review photos and hand off to the medical team":"Continue qualification and request the required photos",suggestedReply:lang==="Spanish"?"Gracias por tu mensaje. Para una evaluación personalizada, por favor envíanos fotos claras de tu cabello desde el frente, ambos lados y la parte posterior.":lang==="Italian"?"Grazie per il tuo messaggio. Per una valutazione personalizzata, inviaci foto chiare dei tuoi capelli: fronte, entrambi i lati e parte posteriore.":"Thank you for your message. For a personalized evaluation, please send clear photos of your hair from the front, both sides and back."};
+  }
+  res.json({success:true,data:result,aiEnabled:Boolean(OPENAI_API_KEY),language:lang});
+});
 
 /* Dashboard */
 app.get("/api/dashboard/stats",(req,res)=>{
@@ -1247,6 +1372,7 @@ app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")))
 
 async function startServer() {
   db = await loadDatabase();
+  ensureDefaultAgent();
   console.log(`[STARTUP] Database loaded: contacts=${db.contacts.length}, leads=${db.leads.length}, messages=${db.messages.length}`);
   processLeadTimers();
   setInterval(processLeadTimers, 30000);
