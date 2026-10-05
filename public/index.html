@@ -124,6 +124,98 @@ input,select,textarea{width:100%;border:1px solid rgba(20,70,100,.12);background
 }
 </style>
 </style>
+
+<style>
+/* ===== FINAL Shared Inbox viewport lock ===== */
+/* The Inbox section itself is a fixed-height workspace.
+   The page must not grow with the conversation list. */
+#section-inbox.active{
+  display:flex;
+  flex-direction:column;
+  height:calc(100vh - 76px - 52px);
+  min-height:0;
+}
+
+#section-inbox.active > .page-head{
+  flex:0 0 auto;
+  margin-bottom:20px;
+}
+
+#section-inbox.active > .card.inbox{
+  flex:1 1 auto;
+  height:auto;
+  min-height:0;
+  max-height:none;
+  overflow:hidden;
+  display:grid;
+}
+
+#section-inbox .inbox-list{
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+#section-inbox #conversationList{
+  flex:1 1 auto;
+  min-height:0;
+  height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+
+#section-inbox .chat{
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+
+#section-inbox .chat-header{
+  flex:0 0 auto;
+}
+
+#section-inbox .messages{
+  flex:1 1 auto;
+  height:0;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+}
+
+#section-inbox .chat-composer{
+  flex:0 0 auto;
+  min-height:69px;
+  position:relative;
+  z-index:5;
+}
+
+/* Prevent the main document from becoming the Inbox's scrollbar. */
+body:has(#section-inbox.active){
+  overflow:hidden;
+}
+
+@media(max-width:1050px){
+  #section-inbox.active{
+    height:calc(100vh - 76px - 30px);
+  }
+
+  #section-inbox.active > .card.inbox{
+    grid-template-rows:minmax(170px,32%) minmax(0,1fr);
+  }
+}
+
+@media(max-width:700px){
+  #section-inbox.active{
+    height:calc(100vh - 76px - 20px);
+  }
+}
+</style>
 </head>
 <body>
 <div class="app">
