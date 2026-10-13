@@ -88,6 +88,7 @@ const defaultDatabase = {
   },
   connectedNumbers: [],
   pendingStatuses: {},
+  optOutPhones: [],
   agents: [],
   assignments: [],
   aiUsage: [],
@@ -117,6 +118,10 @@ function normalizeDatabase(data) {
     leads: normalizedLeads,
     settings: { ...structuredClone(defaultDatabase.settings), ...(source.settings || {}), followupTemplateMap: (source.settings && source.settings.followupTemplateMap && typeof source.settings.followupTemplateMap === "object") ? source.settings.followupTemplateMap : {} },
     connectedNumbers: Array.isArray(source.connectedNumbers) ? source.connectedNumbers : [],
+    optOutPhones: [...new Set([
+      ...(Array.isArray(source.optOutPhones) ? source.optOutPhones.map(cleanPhone) : []),
+      ...normalizedLeads.filter(lead => lead.optOut || lead.stage === "Junk").map(lead => cleanPhone(lead.phone)).filter(Boolean)
+    ])],
     agents: Array.isArray(source.agents) ? source.agents : [],
     assignments: Array.isArray(source.assignments) ? source.assignments : [],
     aiUsage: Array.isArray(source.aiUsage) ? source.aiUsage : [],
@@ -218,6 +223,7 @@ function upsertContact(data) {
       phone,
       wa_id: phone,
       language: data.language || "",
+      optOut: Array.isArray(db.optOutPhones) && db.optOutPhones.includes(phone),
       tags: Array.isArray(data.tags) ? data.tags : [],
       labels: Array.isArray(data.labels) ? data.labels : [],
       lists: [],
@@ -332,7 +338,7 @@ function createOrUpdateLead(data = {}) {
       source: data.source || "Bitrix",
       stage: data.stage || null,
       stageHistory: data.stage ? [{ stage: data.stage, at: now(), reason: "created" }] : [],
-      optOut: false,
+      optOut: Boolean(contact?.optOut || (Array.isArray(db.optOutPhones) && db.optOutPhones.includes(phone))),
       createdAt: data.createdAt || now(),
       updatedAt: now()
     };
@@ -349,6 +355,14 @@ function createOrUpdateLead(data = {}) {
 }
 function setLeadStage(lead, stage, reason = "manual") {
   if (!lead) return null;
+  if (stage === STAGES.JUNK) {
+    lead.optOut = true;
+    const optedOutPhone = cleanPhone(lead.phone);
+    db.optOutPhones = Array.isArray(db.optOutPhones) ? db.optOutPhones : [];
+    if (optedOutPhone && !db.optOutPhones.includes(optedOutPhone)) db.optOutPhones.push(optedOutPhone);
+    const contact = lead.contactId ? db.contacts.find(c => c.id === lead.contactId) : getContact(lead.phone);
+    if (contact) contact.optOut = true;
+  }
   if (lead.stage !== stage) {
     lead.stage = stage;
     lead.stageHistory = Array.isArray(lead.stageHistory) ? lead.stageHistory : [];
@@ -870,6 +884,16 @@ app.get("/api/templates/:name/:language/meta",(req,res)=>{
 
 /* Contacts / labels */
 app.get("/api/contacts",(req,res)=>res.json({data:db.contacts}));
+app.delete("/api/contacts",(req,res)=>{
+  const removedIds=new Set(db.contacts.map(c=>c.id));
+  const removed=db.contacts.length;
+  db.contacts=[];
+  db.lists.forEach(list=>{list.contactIds=(list.contactIds||[]).filter(id=>!removedIds.has(id));});
+  db.leads.forEach(lead=>{if(removedIds.has(lead.contactId))lead.contactId=null;});
+  saveDatabase();
+  addEvent("contacts_bulk_deleted",{removed});
+  res.json({success:true,removed});
+});
 app.post("/api/contacts/import",(req,res)=>{
   try{
     const contacts=Array.isArray(req.body?.contacts)?req.body.contacts:[]; const label=String(req.body?.label||"").trim();
@@ -982,7 +1006,36 @@ app.post("/api/leads/bulk-stage",(req,res)=>{
   let changed=0;ids.forEach(id=>{const lead=db.leads.find(l=>l.id===id);if(lead){if(stage===STAGES.JUNK)lead.optOut=true;setLeadStage(lead,stage,"bulk_manual");changed++;}});
   res.json({success:true,changed});
 });
-app.delete("/api/leads/:id",(req,res)=>{const idx=db.leads.findIndex(l=>l.id===req.params.id);if(idx<0)return res.status(404).json({error:"Lead not found"});db.leads.splice(idx,1);saveDatabase();res.json({success:true});});
+app.delete("/api/leads",(req,res)=>{
+  const removed=db.leads.length;
+  db.leads.forEach(lead=>{
+    if(lead.optOut || lead.stage===STAGES.JUNK){
+      const contact=lead.contactId?db.contacts.find(c=>c.id===lead.contactId):getContact(lead.phone);
+      if(contact)contact.optOut=true;
+    }
+  });
+  db.leads=[];
+  saveDatabase();
+  addEvent("leads_bulk_deleted",{removed});
+  res.json({success:true,removed});
+});
+app.post("/api/leads/bulk-delete",(req,res)=>{
+  const ids=new Set(Array.isArray(req.body?.leadIds)?req.body.leadIds:[]);
+  if(!ids.size)return res.status(400).json({success:false,error:"Select at least one lead."});
+  const before=db.leads.length;
+  db.leads.forEach(lead=>{
+    if(ids.has(lead.id) && (lead.optOut || lead.stage===STAGES.JUNK)){
+      const contact=lead.contactId?db.contacts.find(c=>c.id===lead.contactId):getContact(lead.phone);
+      if(contact)contact.optOut=true;
+    }
+  });
+  db.leads=db.leads.filter(lead=>!ids.has(lead.id));
+  const removed=before-db.leads.length;
+  saveDatabase();
+  addEvent("leads_bulk_deleted",{removed});
+  res.json({success:true,removed});
+});
+app.delete("/api/leads/:id",(req,res)=>{const idx=db.leads.findIndex(l=>l.id===req.params.id);if(idx<0)return res.status(404).json({error:"Lead not found"});const lead=db.leads[idx];if(lead.optOut||lead.stage===STAGES.JUNK){const contact=lead.contactId?db.contacts.find(c=>c.id===lead.contactId):getContact(lead.phone);if(contact)contact.optOut=true;}db.leads.splice(idx,1);saveDatabase();res.json({success:true});});
 app.post("/api/leads/:id/optout",(req,res)=>{const lead=db.leads.find(l=>l.id===req.params.id);if(!lead)return res.status(404).json({error:"Lead not found"});lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"opt_out");res.json({success:true,data:lead});});
 
 /* Lead message endpoint */
@@ -1180,7 +1233,16 @@ app.post("/api/campaigns", (req,res)=>{
     else if(label) recipients=db.contacts.filter(c=>(c.labels||[]).includes(label));
     else if(Array.isArray(contactIds)) recipients=contactIds.map(id=>db.contacts.find(c=>c.id===id)).filter(Boolean);
 
-    recipients=recipients.filter(x=>x?.phone && !leadForPhone(x.phone)?.optOut && leadForPhone(x.phone)?.stage!==STAGES.JUNK);
+    const uniquePhones=new Set();
+    recipients=recipients.filter(x=>{
+      const phone=cleanPhone(x?.phone||x?.wa_id||"");
+      if(!phone || uniquePhones.has(phone)) return false;
+      const existingLead=leadForPhone(phone);
+      const contact=db.contacts.find(c=>cleanPhone(c.phone||c.wa_id)===phone);
+      if(existingLead?.optOut || existingLead?.stage===STAGES.JUNK || contact?.optOut || (Array.isArray(db.optOutPhones) && db.optOutPhones.includes(phone))) return false;
+      uniquePhones.add(phone);
+      return true;
+    });
     if(action==="broadcast"){
       recipients=recipients.map(recipient=>{
         const existingLead=leadForPhone(recipient.phone);
@@ -1344,6 +1406,9 @@ function handleIncomingMessage(message,value){
   else if(text){ const d=detectLanguage(text); if(d.language && contact && (!contact.language || contact.languageSource!=="bitrix")){ contact.language=d.language; contact.languageConfidence=d.confidence; contact.languageSource="conversation"; contact.updatedAt=now(); } }
   const lower=text.toLowerCase();
   if(/^(stop|remove|unsubscribe|not interested|no thanks)\b/.test(lower)||lower.includes("not interested")){
+    db.optOutPhones = Array.isArray(db.optOutPhones) ? db.optOutPhones : [];
+    if(!db.optOutPhones.includes(phone)) db.optOutPhones.push(phone);
+    if(contact) contact.optOut = true;
     if(lead){lead.optOut=true;setLeadStage(lead,STAGES.JUNK,"customer_opt_out");}
   } else if(media&&["image","video"].includes(message.type)){
     if(lead)setLeadStage(lead,STAGES.PHOTO_RECEIVED,"photo_received");
