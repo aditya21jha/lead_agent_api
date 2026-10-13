@@ -380,8 +380,8 @@ body:has(#section-inbox.active){
   <div class="card" style="margin-bottom:16px">
     <div class="page-head"><div><h2 style="font-size:18px">New broadcast</h2><p>Use a label for imported contacts or select an existing lead stage.</p></div></div>
     <div class="form-grid">
-      <div class="field"><label>Audience</label><select id="broadcastAudience" onchange="renderBroadcastAudience()"><option value="label">Contact label</option><option value="stage">Lead stage</option></select></div>
-      <div class="field"><label>Label / Stage</label><select id="broadcastAudienceValue" onchange="updateBroadcastCount()"></select><div class="hint" id="broadcastAudienceHint" style="margin-top:5px"></div></div>
+      <div class="field"><label>Audience</label><select id="broadcastAudience" onchange="renderBroadcastAudience()"><option value="label">Contact label</option><option value="stage">Lead stage</option><option value="csv">Upload CSV for this broadcast</option></select></div>
+      <div class="field" id="broadcastAudiencePicker"><label>Label / Stage</label><select id="broadcastAudienceValue" onchange="updateBroadcastCount()"></select><div class="hint" id="broadcastAudienceHint" style="margin-top:5px"></div></div><div class="field" id="broadcastCsvField" style="display:none"><label>CSV recipients for this broadcast</label><input id="broadcastCsvFile" type="file" accept=".csv,text/csv" onchange="loadBroadcastCsv(event)"><div class="hint" id="broadcastCsvStatus" style="margin-top:5px">Upload Name, Phone, Language. Existing contacts are allowed; each unique phone is sent once in this campaign.</div></div>
       <div class="field"><label>Language</label><select id="broadcastLanguage" onchange="renderBroadcastAudience()"><option value="">All languages</option></select></div>
       <div class="field"><label>Approved template</label><select id="broadcastTemplate" onchange="renderBroadcastFields()"></select></div>
       <div class="field full" id="broadcastFields"></div>
@@ -694,22 +694,48 @@ function getBroadcastSelectedValues(){
 }
 function renderBroadcastAudience(){
   const mode=document.getElementById("broadcastAudience").value, sel=document.getElementById("broadcastAudienceValue"), hint=document.getElementById("broadcastAudienceHint");
+  const picker=document.getElementById("broadcastAudiencePicker"), csvField=document.getElementById("broadcastCsvField");
+  if(picker)picker.style.display=mode==="csv"?"none":"block";
+  if(csvField)csvField.style.display=mode==="csv"?"block":"none";
   if(mode==="label"){
     sel.multiple=true; sel.size=Math.min(7,Math.max(3,contactLabels.length||3));
     sel.innerHTML=contactLabels.map(x=>`<option value="${esc(x.name)}">${esc(x.name)} (${x.count})</option>`).join("")||`<option value="" disabled>No labels</option>`;
     if(hint)hint.textContent="Hold Ctrl (Windows) or Cmd (Mac) to select multiple CSV labels.";
-  }else{
+  }else if(mode==="stage"){
     sel.multiple=false; sel.size=1;
     sel.innerHTML=STAGES.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
     if(hint)hint.textContent="Select one lead stage.";
   }
   renderBroadcastFields(); updateBroadcastCount();
 }
+let broadcastCsvRecipients=[];
+async function loadBroadcastCsv(e){
+  const file=e.target.files?.[0]; if(!file)return;
+  try{
+    const rows=parseCSV((await file.text()).replace(/^\uFEFF/,""));
+    if(rows.length<2)throw new Error("CSV must contain a header and at least one contact.");
+    const norm=x=>String(x||"").trim().toLowerCase().replace(/[^a-z0-9]/g,"");
+    const headers=rows[0].map(norm), ni=headers.findIndex(x=>["name","fullname","contactname"].includes(x)), pi=headers.findIndex(x=>["phone","phonenumber","mobile","whatsapp","whatsappnumber"].includes(x)), li=headers.findIndex(x=>x==="language");
+    if(pi<0||li<0)throw new Error('Expected columns: Name, Phone, Language.');
+    const seen=new Set(); let invalid=0, repeated=0; const data=[];
+    rows.slice(1).forEach((r,i)=>{
+      const raw=String(r[pi]||"").trim(); let phone=raw.replace(/[^0-9]/g,""); if(raw.startsWith("00"))phone=raw.slice(2).replace(/[^0-9]/g,"");
+      if(phone.length<8||phone.length>15){invalid++;return;}
+      if(seen.has(phone)){repeated++;return;} seen.add(phone);
+      data.push({name:(ni>=0?String(r[ni]||"").trim():"")||`Lead${String(i+1).padStart(3,"0")}`,phone,wa_id:phone,language:String(r[li]||"").trim()});
+    });
+    if(!data.length)throw new Error(`No valid unique recipients. Invalid rows: ${invalid}.`);
+    broadcastCsvRecipients=data;
+    document.getElementById("broadcastCsvStatus").textContent=`${data.length} unique recipients ready · ${repeated} repeated rows within this CSV ignored · ${invalid} invalid rows ignored. Existing database contacts will still be included.`;
+    updateBroadcastCount();
+  }catch(err){broadcastCsvRecipients=[];document.getElementById("broadcastCsvStatus").textContent=err.message;updateBroadcastCount();toast(err.message,true)}
+}
 function renderBroadcastFields(){const t=getSelectedTemplateFromValue(document.getElementById("broadcastTemplate")?.value);document.getElementById("broadcastFields").innerHTML=t?templateDynamicHtml(t,"audience"):"<div class='hint'>Select an approved template.</div>"}
 async function updateBroadcastCount(){
   const mode=document.getElementById("broadcastAudience").value,values=getBroadcastSelectedValues(),language=document.getElementById("broadcastLanguage").value;
   let count=0;
-  if(mode==="label"){
+  if(mode==="csv") count=broadcastCsvRecipients.filter(c=>!language||String(c.language||"").toLowerCase()===language.toLowerCase()).length;
+  else if(mode==="label"){
     const wanted=new Set(values);
     count=new Set(contacts.filter(c=>(c.labels||[]).some(l=>wanted.has(l))&&(!language||String(c.language||"").toLowerCase()===language.toLowerCase())).map(c=>c.phone||c.wa_id)).size;
   }else{
@@ -720,10 +746,16 @@ async function updateBroadcastCount(){
 }
 async function sendAudienceBroadcast(){
   const mode=document.getElementById("broadcastAudience").value,values=getBroadcastSelectedValues(),language=document.getElementById("broadcastLanguage").value,t=getSelectedTemplateFromValue(document.getElementById("broadcastTemplate").value);
-  if(!values.length||!t)return toast("Select an audience and approved template");
+  if((mode!=="csv"&&!values.length)||!t)return toast("Select an audience and approved template");
   try{
     const x=collectSenderData(t,"audience"),media=await ensureTemplateConfig(t,"audience");
-    if(mode==="label"){
+    if(mode==="csv"){
+      const audience=broadcastCsvRecipients.filter(c=>!language||String(c.language||"").toLowerCase()===language.toLowerCase());
+      if(!audience.length)return toast("Upload a valid CSV with recipients matching the selected language",true);
+      const r=await api("/api/campaigns",{method:"POST",body:JSON.stringify({name:`CSV · ${document.getElementById("broadcastCsvFile")?.files?.[0]?.name||"New broadcast"}`,csvRecipients:audience,templateName:t.name,language:t.language,action:"broadcast",delayMs:900,variablesByLead:Object.fromEntries(audience.map(c=>[c.id,c.variables||x.variables])),mediaUrl:media,buttonPayloads:x.buttonPayloads})});
+      toast(`Broadcast started for ${r.total} CSV recipients`);
+      broadcastCsvRecipients=[]; if(document.getElementById("broadcastCsvFile"))document.getElementById("broadcastCsvFile").value=""; document.getElementById("broadcastCsvStatus").textContent="CSV sent to campaign queue. Upload another CSV for the next broadcast.";
+    }else if(mode==="label"){
       const wanted=new Set(values);
       const seen=new Set();
       const audience=contacts.filter(c=>{
