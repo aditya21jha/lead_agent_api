@@ -1173,12 +1173,26 @@ function resumeRunningCampaigns() {
 app.get("/api/campaigns", (req,res)=>res.json({data:db.campaigns}));
 app.post("/api/campaigns", (req,res)=>{
   try {
-    const {name,leadIds,contactIds,listId,label,labels,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
+    const {name,leadIds,contactIds,listId,label,labels,csvRecipients,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
     const template=templateByKey(templateName,language);
     if(!template||String(template.status).toUpperCase()!=="APPROVED") return res.status(400).json({error:"An approved Meta template is required."});
 
     let recipients=[];
-    if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
+    // A fresh broadcast CSV is an explicit campaign audience. Existing database
+    // contacts must not be excluded just because they already exist elsewhere.
+    if(Array.isArray(csvRecipients) && csvRecipients.length){
+      const seenCsvPhones=new Set();
+      recipients=csvRecipients.map(item=>{
+        const phone=cleanPhone(item?.phone||item?.wa_id||"");
+        if(!phone || phone.length<8 || phone.length>15 || seenCsvPhones.has(phone)) return null;
+        seenCsvPhones.add(phone);
+        const existing=getContact(phone);
+        return {...(existing||{}), id:existing?.id || makeId("csv_recipient"), phone, wa_id:phone,
+          name:String(item?.name||existing?.name||phone), language:String(item?.language||existing?.language||""),
+          variables:Array.isArray(item?.variables)?item.variables:(existing?.variables||[])};
+      }).filter(Boolean);
+    }
+    else if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
     else if(listId){const list=db.lists.find(l=>l.id===listId);if(!list)return res.status(404).json({error:"List not found"});recipients=db.contacts.filter(c=>list.contactIds.includes(c.id));}
     else if(Array.isArray(labels) && labels.length){
       const wanted=new Set(labels.map(x=>String(x||"").trim()).filter(Boolean));
