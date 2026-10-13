@@ -924,15 +924,29 @@ app.get("/api/contacts/labels",(req,res)=>{
 app.delete("/api/contacts/labels",(req,res)=>{
   const label=String(req.query?.name||req.body?.name||"").trim();
   if(!label) return res.status(400).json({success:false,error:"Label name is required."});
-  let removed=0;
-  db.contacts.forEach(contact=>{
-    const before=Array.isArray(contact.labels)?contact.labels:[];
-    const after=before.filter(item=>String(item)!==label);
-    if(after.length!==before.length){contact.labels=after;contact.updatedAt=now();removed += before.length-after.length;}
-  });
+  // Deleting a label from Contacts means deleting every contact in that audience.
+  // Keep leads, inbox conversations, messages and campaign history intact.
+  const targets=db.contacts.filter(c=>(Array.isArray(c.labels)?c.labels:[]).some(x=>String(x)===label));
+  const ids=new Set(targets.map(c=>c.id));
+  const phones=new Set(targets.map(c=>cleanPhone(c.phone||c.wa_id)).filter(Boolean));
+  db.contacts=db.contacts.filter(c=>!ids.has(c.id));
+  db.lists.forEach(list=>{list.contactIds=(Array.isArray(list.contactIds)?list.contactIds:[]).filter(id=>!ids.has(id));});
+  db.leads.forEach(lead=>{if(ids.has(lead.contactId)) lead.contactId=null;});
+  // Also remove the deleted label from any residual record, guarding legacy data.
+  db.contacts.forEach(c=>{c.labels=(c.labels||[]).filter(x=>String(x)!==label);});
   saveDatabase();
-  addEvent("contact_label_deleted",{label,removed});
-  res.json({success:true,label,removed});
+  addEvent("contact_label_audience_deleted",{label,removed:targets.length,phones:phones.size});
+  res.json({success:true,label,removed:targets.length,removedLabels:targets.length,remainingContacts:db.contacts.length});
+});
+app.delete("/api/contacts",(req,res)=>{
+  const removed=db.contacts.length;
+  const ids=new Set(db.contacts.map(c=>c.id));
+  db.contacts=[];
+  db.lists.forEach(list=>{list.contactIds=[];});
+  db.leads.forEach(lead=>{if(ids.has(lead.contactId)) lead.contactId=null;});
+  saveDatabase();
+  addEvent("contacts_deleted_all",{removed});
+  res.json({success:true,removed});
 });
 
 /* Generic lists */
