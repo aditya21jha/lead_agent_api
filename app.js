@@ -1256,6 +1256,17 @@ app.get("/api/inbox",(req,res)=>{
   res.json({data:conversations});
 });
 app.get("/api/inbox/:waId/messages",(req,res)=>res.json({data:db.messages.filter(m=>cleanPhone(m.wa_id)===cleanPhone(req.params.waId))}));
+app.delete("/api/inbox/:waId/messages/:messageId",(req,res)=>{
+  const phone=cleanPhone(req.params.waId), messageId=String(req.params.messageId||"");
+  const before=db.messages.length;
+  const target=db.messages.find(m=>cleanPhone(m.wa_id)===phone && String(m.id||m.wamid||"")===messageId);
+  if(!target)return res.status(404).json({success:false,error:"Message not found."});
+  db.messages=db.messages.filter(m=>!(cleanPhone(m.wa_id)===phone && String(m.id||m.wamid||"")===messageId));
+  const conversation=db.conversations[phone];
+  if(conversation){const remaining=db.messages.filter(m=>cleanPhone(m.wa_id)===phone).sort((x,y)=>new Date(y.timestamp)-new Date(x.timestamp));conversation.lastMessage=remaining[0]?.text||"";conversation.lastMessageAt=remaining[0]?.timestamp||null;conversation.lastDirection=remaining[0]?.direction||null;}
+  saveDatabase();
+  res.json({success:true,removed:before-db.messages.length,scope:"local_history"});
+});
 app.post("/api/inbox/delete-chats",(req,res)=>{
   const requested=Array.isArray(req.body?.phones)?req.body.phones:[];
   const phones=[...new Set(requested.map(cleanPhone).filter(Boolean))];
@@ -1371,6 +1382,7 @@ function handleIncomingMessage(message,value){
   const conversation=getConversation(phone);
   let text="";let media=null;
   if(message.type==="text")text=message.text?.body||"";
+  else if(message.type==="reaction")text=message.reaction?.emoji||"";
   else if(message.type==="button")text=message.button?.text||"";
   else if(message.type==="interactive")text=message.interactive?.button_reply?.title||message.interactive?.list_reply?.title||"";
   else if(["image","video","audio","document","sticker"].includes(message.type)){
