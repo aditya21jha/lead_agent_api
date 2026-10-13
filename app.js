@@ -872,16 +872,33 @@ app.get("/api/templates/:name/:language/meta",(req,res)=>{
 app.get("/api/contacts",(req,res)=>res.json({data:db.contacts}));
 app.post("/api/contacts/import",(req,res)=>{
   try{
-    const contacts=Array.isArray(req.body?.contacts)?req.body.contacts:[]; const label=String(req.body?.label||"").trim();
-    let imported=0,updated=0;
-    contacts.forEach(item=>{
-      const phone=cleanPhone(item.phone||item.number||item.wa_id); if(!phone)return;
-      const existing=getContact(phone);
-      const contact=upsertContact({...item,phone,wa_id:phone,labels:label?[label]:[]});
-      if(existing)updated++; else if(contact)imported++;
-      if(label&&contact&&!contact.labels.includes(label))contact.labels.push(label);
-    });
-    saveDatabase(); res.json({success:true,imported,updated,total:imported+updated,label});
+    const rows=Array.isArray(req.body?.contacts)?req.body.contacts:[];
+    const label=String(req.body?.label||"").trim();
+    const byPhone=new Map();
+    let invalidRows=0, repeatedRows=0;
+    // Deduplicate only within this import. A number already stored in the database
+    // remains part of this CSV audience and receives the requested label.
+    for(const item of rows){
+      const phone=cleanPhone(item?.phone||item?.number||item?.wa_id);
+      if(!phone || phone.length<8 || phone.length>15){invalidRows++;continue;}
+      if(byPhone.has(phone)){repeatedRows++; const prior=byPhone.get(phone); if(!prior.name && item?.name)prior.name=String(item.name); if(!prior.language && item?.language)prior.language=String(item.language); continue;}
+      byPhone.set(phone,{...item,phone,wa_id:phone});
+    }
+    let imported=0,updated=0,labelAssigned=0;
+    for(const item of byPhone.values()){
+      const existing=getContact(item.phone);
+      const contact=upsertContact({...item,phone:item.phone,wa_id:item.phone});
+      if(!contact)continue;
+      if(existing)updated++;else imported++;
+      // Always union the label onto existing contacts; never replace their other labels.
+      if(label){
+        const labels=Array.isArray(contact.labels)?contact.labels:[];
+        if(!labels.some(x=>String(x)===label)){labels.push(label);contact.labels=labels;}
+        if(contact.labels.some(x=>String(x)===label))labelAssigned++;
+      }
+    }
+    saveDatabase();
+    res.json({success:true,imported,updated,total:imported+updated,rowsReceived:rows.length,uniqueValid:byPhone.size,repeatedRows,invalidRows,label,labelAssigned});
   }catch(e){res.status(500).json({success:false,error:e.message});}
 });
 app.post("/api/leads/import-contacts",(req,res)=>{
