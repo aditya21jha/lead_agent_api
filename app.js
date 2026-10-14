@@ -80,6 +80,7 @@ const defaultDatabase = {
   events: [],
   leads: [],
   settings: {
+    automaticFollowupsEnabled: false,
     followup1Days: 1,
     followup2Days: 3,
     followup1TemplateName: null,
@@ -396,7 +397,25 @@ function resolveAutomaticFollowupTemplate(action, lead) {
   return template || null;
 }
 
+function stopFailedAutomaticFollowup(lead, action, details = {}) {
+  if (!lead) return;
+  const failedAt = now();
+  if (action === "followup1") {
+    lead.followup1DueAt = null;
+    lead.followup1FailedAt = failedAt;
+    lead.followup2DueAt = null;
+    setLeadStage(lead, STAGES.PENDING_FOLLOWUP_1, "followup_1_failed_no_retry");
+  } else if (action === "followup2") {
+    lead.followup2DueAt = null;
+    lead.followup2FailedAt = failedAt;
+    setLeadStage(lead, STAGES.PENDING_FOLLOWUP_2, "followup_2_failed_no_retry");
+  }
+  addEvent("automatic_followup_stopped_after_failure", { leadId: lead.id, phone: lead.phone, action, ...details, retryScheduled: false });
+  saveDatabase();
+}
+
 async function sendAutomaticFollowup(lead, action) {
+  if (!db.settings.automaticFollowupsEnabled) return false;
   if (!lead || lead.optOut || lead.stage === STAGES.JUNK || lead.stage === STAGES.PHOTO_RECEIVED || lead.stage === STAGES.WAITING_RESPONSE) return false;
   const template = resolveAutomaticFollowupTemplate(action, lead);
   if (!template) {
@@ -422,6 +441,8 @@ async function sendAutomaticFollowup(lead, action) {
   } catch (error) {
     addEvent("automatic_followup_failed", { leadId: lead.id, phone: lead.phone, action, error: error.message, code: error.code || null, errorCode: error.errorCode || null });
     console.error(`[FOLLOWUP] ${action} failed for lead ${lead.id}: ${error.message}`);
+    // Do not leave a due timestamp behind: a failed follow-up must not be retried every scheduler cycle.
+    stopFailedAutomaticFollowup(lead, action, { error: error.message, code: error.code || null, errorCode: error.errorCode || null });
     return false;
   }
 }
@@ -447,7 +468,8 @@ function markContacted(lead, messageMeta, isInitial = false) {
   saveDatabase();
 }
 async function processLeadTimers() {
-  if (!db || !Array.isArray(db.leads)) return;
+  // Automatic follow-ups are opt-in and remain paused by default.
+  if (!db || !Array.isArray(db.leads) || !db.settings?.automaticFollowupsEnabled) return;
   const t = Date.now();
   for (const lead of db.leads) {
     if (lead.optOut || lead.stage === STAGES.JUNK || lead.stage === STAGES.PHOTO_RECEIVED || lead.stage === STAGES.WAITING_RESPONSE) continue;
@@ -478,10 +500,10 @@ function applyStatusToMessage(message, status) {
 function rollbackFailedAutomaticFollowup(message, status){
   if(!message || String(status?.status||"").toLowerCase()!=="failed" || !message.leadId || !["followup1","followup2"].includes(message.action)) return;
   const lead=db.leads.find(l=>String(l.id)===String(message.leadId));
-  if(!lead || lead.optOut || lead.stage===STAGES.JUNK || lead.stage===STAGES.PHOTO_RECEIVED) return;
-  if(message.action==="followup1"){lead.followup1SentAt=null;lead.followup2DueAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP_1,"followup_1_delivery_failed");}
-  else {lead.followup2SentAt=null;setLeadStage(lead,STAGES.PENDING_FOLLOWUP_2,"followup_2_delivery_failed");}
-  addEvent("automatic_followup_delivery_failed",{leadId:lead.id,phone:lead.phone,action:message.action,errors:status?.errors||[]});
+  if(!lead) return;
+  // Delivery failures are terminal for automation: clear the due date and never auto-retry.
+  stopFailedAutomaticFollowup(lead, message.action, { errors: status?.errors || [], messageId: message.wamid || message.messageId || null, source: "delivery_status" });
+  addEvent("automatic_followup_delivery_failed",{leadId:lead.id,phone:lead.phone,action:message.action,errors:status?.errors||[],retryScheduled:false});
 }
 function applyPendingStatus(messageId) {
   if (!messageId) return null;
@@ -924,29 +946,15 @@ app.get("/api/contacts/labels",(req,res)=>{
 app.delete("/api/contacts/labels",(req,res)=>{
   const label=String(req.query?.name||req.body?.name||"").trim();
   if(!label) return res.status(400).json({success:false,error:"Label name is required."});
-  // Deleting a label from Contacts means deleting every contact in that audience.
-  // Keep leads, inbox conversations, messages and campaign history intact.
-  const targets=db.contacts.filter(c=>(Array.isArray(c.labels)?c.labels:[]).some(x=>String(x)===label));
-  const ids=new Set(targets.map(c=>c.id));
-  const phones=new Set(targets.map(c=>cleanPhone(c.phone||c.wa_id)).filter(Boolean));
-  db.contacts=db.contacts.filter(c=>!ids.has(c.id));
-  db.lists.forEach(list=>{list.contactIds=(Array.isArray(list.contactIds)?list.contactIds:[]).filter(id=>!ids.has(id));});
-  db.leads.forEach(lead=>{if(ids.has(lead.contactId)) lead.contactId=null;});
-  // Also remove the deleted label from any residual record, guarding legacy data.
-  db.contacts.forEach(c=>{c.labels=(c.labels||[]).filter(x=>String(x)!==label);});
+  let removed=0;
+  db.contacts.forEach(contact=>{
+    const before=Array.isArray(contact.labels)?contact.labels:[];
+    const after=before.filter(item=>String(item)!==label);
+    if(after.length!==before.length){contact.labels=after;contact.updatedAt=now();removed += before.length-after.length;}
+  });
   saveDatabase();
-  addEvent("contact_label_audience_deleted",{label,removed:targets.length,phones:phones.size});
-  res.json({success:true,label,removed:targets.length,removedLabels:targets.length,remainingContacts:db.contacts.length});
-});
-app.delete("/api/contacts",(req,res)=>{
-  const removed=db.contacts.length;
-  const ids=new Set(db.contacts.map(c=>c.id));
-  db.contacts=[];
-  db.lists.forEach(list=>{list.contactIds=[];});
-  db.leads.forEach(lead=>{if(ids.has(lead.contactId)) lead.contactId=null;});
-  saveDatabase();
-  addEvent("contacts_deleted_all",{removed});
-  res.json({success:true,removed});
+  addEvent("contact_label_deleted",{label,removed});
+  res.json({success:true,label,removed});
 });
 
 /* Generic lists */
@@ -1173,26 +1181,12 @@ function resumeRunningCampaigns() {
 app.get("/api/campaigns", (req,res)=>res.json({data:db.campaigns}));
 app.post("/api/campaigns", (req,res)=>{
   try {
-    const {name,leadIds,contactIds,listId,label,labels,csvRecipients,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
+    const {name,leadIds,contactIds,listId,label,labels,templateName,language,variablesByLead={},delayMs=3000,action="followup1",mediaUrl="",buttonPayloads={},buttonParameters={},autoLanguage=false}=req.body||{};
     const template=templateByKey(templateName,language);
     if(!template||String(template.status).toUpperCase()!=="APPROVED") return res.status(400).json({error:"An approved Meta template is required."});
 
     let recipients=[];
-    // A fresh broadcast CSV is an explicit campaign audience. Existing database
-    // contacts must not be excluded just because they already exist elsewhere.
-    if(Array.isArray(csvRecipients) && csvRecipients.length){
-      const seenCsvPhones=new Set();
-      recipients=csvRecipients.map(item=>{
-        const phone=cleanPhone(item?.phone||item?.wa_id||"");
-        if(!phone || phone.length<8 || phone.length>15 || seenCsvPhones.has(phone)) return null;
-        seenCsvPhones.add(phone);
-        const existing=getContact(phone);
-        return {...(existing||{}), id:existing?.id || makeId("csv_recipient"), phone, wa_id:phone,
-          name:String(item?.name||existing?.name||phone), language:String(item?.language||existing?.language||""),
-          variables:Array.isArray(item?.variables)?item.variables:(existing?.variables||[])};
-      }).filter(Boolean);
-    }
-    else if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
+    if(Array.isArray(leadIds)&&leadIds.length) recipients=db.leads.filter(l=>leadIds.includes(l.id));
     else if(listId){const list=db.lists.find(l=>l.id===listId);if(!list)return res.status(404).json({error:"List not found"});recipients=db.contacts.filter(c=>list.contactIds.includes(c.id));}
     else if(Array.isArray(labels) && labels.length){
       const wanted=new Set(labels.map(x=>String(x||"").trim()).filter(Boolean));
@@ -1256,30 +1250,6 @@ app.get("/api/inbox",(req,res)=>{
   res.json({data:conversations});
 });
 app.get("/api/inbox/:waId/messages",(req,res)=>res.json({data:db.messages.filter(m=>cleanPhone(m.wa_id)===cleanPhone(req.params.waId))}));
-app.delete("/api/inbox/:waId/messages/:messageId",(req,res)=>{
-  const phone=cleanPhone(req.params.waId), messageId=String(req.params.messageId||"");
-  const before=db.messages.length;
-  const target=db.messages.find(m=>cleanPhone(m.wa_id)===phone && String(m.id||m.wamid||"")===messageId);
-  if(!target)return res.status(404).json({success:false,error:"Message not found."});
-  db.messages=db.messages.filter(m=>!(cleanPhone(m.wa_id)===phone && String(m.id||m.wamid||"")===messageId));
-  const conversation=db.conversations[phone];
-  if(conversation){const remaining=db.messages.filter(m=>cleanPhone(m.wa_id)===phone).sort((x,y)=>new Date(y.timestamp)-new Date(x.timestamp));conversation.lastMessage=remaining[0]?.text||"";conversation.lastMessageAt=remaining[0]?.timestamp||null;conversation.lastDirection=remaining[0]?.direction||null;}
-  saveDatabase();
-  res.json({success:true,removed:before-db.messages.length,scope:"local_history"});
-});
-app.post("/api/inbox/delete-chats",(req,res)=>{
-  const requested=Array.isArray(req.body?.phones)?req.body.phones:[];
-  const phones=[...new Set(requested.map(cleanPhone).filter(Boolean))];
-  if(!phones.length)return res.status(400).json({success:false,error:"Select at least one chat to delete."});
-  const selected=new Set(phones);
-  let conversationsDeleted=0;
-  for(const phone of phones){if(Object.prototype.hasOwnProperty.call(db.conversations,phone)){delete db.conversations[phone];conversationsDeleted++;}}
-  const before=db.messages.length;
-  db.messages=db.messages.filter(m=>!selected.has(cleanPhone(m.wa_id)));
-  const messagesDeleted=before-db.messages.length;
-  saveDatabase();
-  res.json({success:true,conversationsDeleted,messagesDeleted,phonesDeleted:phones.length});
-});
 
 async function uploadWhatsAppMedia(dataUrl, mimeType, filename){
   if(!WHATSAPP_TOKEN||!PHONE_NUMBER_ID) throw new Error("WhatsApp credentials are not configured.");
@@ -1382,7 +1352,6 @@ function handleIncomingMessage(message,value){
   const conversation=getConversation(phone);
   let text="";let media=null;
   if(message.type==="text")text=message.text?.body||"";
-  else if(message.type==="reaction")text=message.reaction?.emoji||"";
   else if(message.type==="button")text=message.button?.text||"";
   else if(message.type==="interactive")text=message.interactive?.button_reply?.title||message.interactive?.list_reply?.title||"";
   else if(["image","video","audio","document","sticker"].includes(message.type)){
@@ -1539,6 +1508,9 @@ app.get("/api/events",(req,res)=>res.json({data:db.events.slice(0,200)}));
 app.get("/api/settings/followups",(req,res)=>res.json({data:db.settings}));
 app.post("/api/settings/followups",(req,res)=>{
   const s=req.body||{};
+  if (Object.prototype.hasOwnProperty.call(s, "automaticFollowupsEnabled")) {
+    db.settings.automaticFollowupsEnabled = s.automaticFollowupsEnabled === true || String(s.automaticFollowupsEnabled).toLowerCase() === "true";
+  }
   db.settings.followup1Days=Math.max(1,Number(s.followup1Days)||1);
   db.settings.followup2Days=Math.max(1,Number(s.followup2Days)||3);
   if(Object.prototype.hasOwnProperty.call(s,"followupTemplateMap")) {
