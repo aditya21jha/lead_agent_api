@@ -902,5 +902,27 @@ async function deleteAgent(id){if(!confirm("Remove this agent?"))return;try{awai
 async function initialize(){await Promise.allSettled([loadCountries(),loadTemplates(),loadContacts(),loadLabels(),loadDashboard(),loadLeadManager(),loadNumbers(),loadSettings(),loadAnalytics(),loadTeam()]);await initBroadcastComposer();loadBitrixLeads(true);await pollIncomingNotifications();if(!window._incomingPollTimer)window._incomingPollTimer=setInterval(()=>pollIncomingNotifications(),3000);if(!window._pageRefreshTimer)window._pageRefreshTimer=setInterval(()=>{if(document.getElementById("section-bitrix").classList.contains("active"))loadBitrixLeads(false);if(document.getElementById("section-lead-manager").classList.contains("active"))loadLeadManager();if(document.getElementById("section-inbox").classList.contains("active"))loadInbox({background:true});if(document.getElementById("section-dashboard").classList.contains("active"))loadDashboard()},5000)}
 initialize();
 </script>
-</body>
+
+
+<div id="rhAdminSecurityControl" style="position:fixed;right:16px;bottom:16px;z-index:9999">
+  <button id="rhAdminLogout" type="button" style="border:1px solid rgba(255,255,255,.25);border-radius:12px;padding:10px 14px;background:#071a2d;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.2);font-size:12px">🔒 Admin · Log out</button>
+</div>
+<script>
+(() => {
+  const button = document.getElementById('rhAdminLogout');
+  if (!button) return;
+  button.addEventListener('click', async () => {
+    try { await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (_) {}
+    window.location.replace('/login');
+  });
+  // If a session expires, protected API responses send the browser back to login.
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    if (response.status === 401) window.location.replace('/login');
+    return response;
+  };
+})();
+</script>
+\n</body>
 </html>
