@@ -73,6 +73,10 @@ app.post("/auth/logout", (req, res) => {
   res.json({ success: true });
 });
 app.use((req, res, next) => {
+  // Public template media: Meta must be able to fetch image URLs without a dashboard session.
+  // Only static image files are exempted; HTML pages and all APIs remain protected.
+  if (/^\/[^?]*\.(?:jpe?g|png|webp|gif)$/i.test(req.path)) return next();
+
   // Meta must be able to reach its webhook without an interactive dashboard session.
   if (req.path === "/webhook" || req.path === "/login" || req.path === "/auth/login" || req.path === "/auth/logout") return next();
   if (!appReady && !req.path.startsWith("/webhook")) return res.status(503).json({ ok: false, error: "Application is starting. Please retry in a moment." });
