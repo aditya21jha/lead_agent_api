@@ -8,17 +8,83 @@ const {
   getCountryCallingCode
 } = require("libphonenumber-js");
 
+const crypto = require("crypto");
 const app = express();
+app.disable("x-powered-by");
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
-
-app.use((req, res, next) => {
-  if (!appReady && !req.path.startsWith("/webhook")) return res.status(503).json({ ok: false, error: "Application is starting. Please retry in a moment." });
-  next();
-});
 
 const PORT = process.env.PORT || 3000;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const loginAttempts = new Map();
+
+function safeEqual(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+function createSessionToken() {
+  const payload = Buffer.from(JSON.stringify({ exp: Date.now() + SESSION_TTL_MS, nonce: crypto.randomBytes(16).toString("hex") })).toString("base64url");
+  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+function hasValidSession(req) {
+  if (!SESSION_SECRET) return false;
+  const token = String(req.headers.cookie || "").split(";").map(x => x.trim()).find(x => x.startsWith("rh_admin_session="))?.slice("rh_admin_session=".length);
+  if (!token) return false;
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update(parts[0]).digest("base64url");
+  if (!safeEqual(parts[1], expected)) return false;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+    return Number(payload.exp) > Date.now();
+  } catch { return false; }
+}
+function sessionCookieOptions() {
+  return `Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+}
+app.get("/login", (req, res) => {
+  if (hasValidSession(req)) return res.redirect("/");
+  res.set("Cache-Control", "no-store");
+  res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+app.post("/auth/login", (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const record = loginAttempts.get(ip) || { count: 0, until: 0 };
+  if (record.until > Date.now() && record.count >= 8) return res.status(429).json({ error: "Too many login attempts. Try again in 15 minutes." });
+  if (!ADMIN_PASSWORD || !SESSION_SECRET) return res.status(503).json({ error: "Admin login is not configured. Set ADMIN_PASSWORD and SESSION_SECRET in Render Environment." });
+  const password = String(req.body?.password || "");
+  if (!safeEqual(password, ADMIN_PASSWORD)) {
+    record.count += 1;
+    if (record.count >= 8) record.until = Date.now() + 15 * 60 * 1000;
+    loginAttempts.set(ip, record);
+    return res.status(401).json({ error: "Incorrect password." });
+  }
+  loginAttempts.delete(ip);
+  res.set("Cache-Control", "no-store");
+  res.setHeader("Set-Cookie", `rh_admin_session=${createSessionToken()}; ${sessionCookieOptions()}`);
+  res.json({ success: true });
+});
+app.post("/auth/logout", (req, res) => {
+  res.setHeader("Set-Cookie", `rh_admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+  res.json({ success: true });
+});
+app.use((req, res, next) => {
+  // Meta must be able to reach its webhook without an interactive dashboard session.
+  if (req.path === "/webhook" || req.path === "/login" || req.path === "/auth/login" || req.path === "/auth/logout") return next();
+  if (!appReady && !req.path.startsWith("/webhook")) return res.status(503).json({ ok: false, error: "Application is starting. Please retry in a moment." });
+  if (!hasValidSession(req)) {
+    if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Authentication required.", login: "/login" });
+    return res.redirect("/login");
+  }
+  next();
+});
+app.use(express.static(path.join(__dirname, "public")));
+
+const PORT_UNUSED_DO_NOT_USE = undefined;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
